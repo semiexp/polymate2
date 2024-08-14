@@ -87,8 +87,6 @@ fn compile(pieces: &[Shape], board: &Shape) -> CompiledProblem {
         placements.push(placements_pos);
     }
 
-    eprintln!("{:?}", placements[1][0]);
-
     CompiledProblem {
         board_size,
         piece_count: pieces.len(),
