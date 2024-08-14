@@ -3,7 +3,7 @@ use std::ops::{Index, IndexMut};
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CubicGrid<T> {
     dims: (usize, usize, usize),
-    data: Vec<T>,
+    pub(crate) data: Vec<T>,
 }
 
 impl<T> CubicGrid<T> {
