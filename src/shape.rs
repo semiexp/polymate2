@@ -1,9 +1,82 @@
 use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Shape {
+pub struct CubicGrid<T> {
     dims: (usize, usize, usize),
-    data: Vec<bool>,
+    data: Vec<T>,
+}
+
+impl<T> CubicGrid<T> {
+    pub fn new(data: Vec<T>, dims: (usize, usize, usize)) -> CubicGrid<T> {
+        Self { data, dims }
+    }
+
+    pub fn dims(&self) -> (usize, usize, usize) {
+        self.dims
+    }
+
+    pub fn from_array_2d(data: Vec<Vec<T>>) -> CubicGrid<T> {
+        let dims = (1, data.len(), data[0].len());
+        let data = data.into_iter().flatten().collect();
+        Self { data, dims }
+    }
+
+    pub fn from_array_3d(data: Vec<Vec<Vec<T>>>) -> CubicGrid<T> {
+        let dims = (data.len(), data[0].len(), data[0][0].len());
+        let data = data.into_iter().flatten().flatten().collect();
+        Self { data, dims }
+    }
+
+    fn apply_transform(&self, transform: Transform) -> CubicGrid<T>
+    where
+        T: Clone,
+    {
+        let new_dims = (
+            get_index(self.dims, transform.0),
+            get_index(self.dims, transform.1),
+            get_index(self.dims, transform.2),
+        );
+
+        let inv = inverse(transform);
+        let mut buf = vec![];
+        for i in 0..new_dims.0 {
+            for j in 0..new_dims.1 {
+                for k in 0..new_dims.2 {
+                    let pos = (i, j, k);
+                    let orig_pos = (
+                        get_index_offset(pos, new_dims, inv.0),
+                        get_index_offset(pos, new_dims, inv.1),
+                        get_index_offset(pos, new_dims, inv.2),
+                    );
+                    buf.push(self[orig_pos].clone());
+                }
+            }
+        }
+
+        CubicGrid::new(buf, new_dims)
+    }
+}
+
+impl<T> Index<(usize, usize, usize)> for CubicGrid<T> {
+    type Output = T;
+
+    fn index(&self, index: (usize, usize, usize)) -> &Self::Output {
+        assert!(index.0 < self.dims.0 && index.1 < self.dims.1 && index.2 < self.dims.2);
+        let (x, y, z) = index;
+        let (_wx, wy, wz) = self.dims;
+        let index = x * wy * wz + y * wz + z;
+        &self.data[index]
+    }
+}
+
+impl<T> IndexMut<(usize, usize, usize)> for CubicGrid<T> {
+    fn index_mut(&mut self, index: (usize, usize, usize)) -> &mut Self::Output {
+        assert!(index.0 < self.dims.0 && index.1 < self.dims.1 && index.2 < self.dims.2);
+        let (x, y, z) = index;
+        let (_wx, wy, wz) = self.dims;
+        let index = x * wy * wz + y * wz + z;
+        &mut self.data[index]
+    }
 }
 
 type Transform = (usize, usize, usize);
@@ -65,50 +138,63 @@ fn get_index_offset(pos: (usize, usize, usize), dims: (usize, usize, usize), idx
     }
 }
 
+fn inverse(transform: Transform) -> Transform {
+    let mut ret = (0, 0, 0);
+
+    if transform.0 == 0 {
+        ret.0 = 0;
+    } else if transform.0 == !0 {
+        ret.0 = !0;
+    } else if transform.0 == 1 {
+        ret.1 = 0;
+    } else if transform.0 == !1 {
+        ret.1 = !0;
+    } else if transform.0 == 2 {
+        ret.2 = 0;
+    } else if transform.0 == !2 {
+        ret.2 = !0;
+    } else {
+        panic!("Invalid index: {}", transform.0);
+    }
+
+    if transform.1 == 0 {
+        ret.0 = 1;
+    } else if transform.1 == !0 {
+        ret.0 = !1;
+    } else if transform.1 == 1 {
+        ret.1 = 1;
+    } else if transform.1 == !1 {
+        ret.1 = !1;
+    } else if transform.1 == 2 {
+        ret.2 = 1;
+    } else if transform.1 == !2 {
+        ret.2 = !1;
+    } else {
+        panic!("Invalid index: {}", transform.1);
+    }
+
+    if transform.2 == 0 {
+        ret.0 = 2;
+    } else if transform.2 == !0 {
+        ret.0 = !2;
+    } else if transform.2 == 1 {
+        ret.1 = 2;
+    } else if transform.2 == !1 {
+        ret.1 = !2;
+    } else if transform.2 == 2 {
+        ret.2 = 2;
+    } else if transform.2 == !2 {
+        ret.2 = !2;
+    } else {
+        panic!("Invalid index: {}", transform.2);
+    }
+
+    ret
+}
+
+pub type Shape = CubicGrid<bool>;
+
 impl Shape {
-    pub fn new(data: Vec<bool>, dims: (usize, usize, usize)) -> Shape {
-        Self { data, dims }
-    }
-
-    pub fn dims(&self) -> (usize, usize, usize) {
-        self.dims
-    }
-
-    pub fn from_array_2d(data: Vec<Vec<bool>>) -> Shape {
-        let dims = (data.len(), data[0].len(), 1);
-        let data = data.into_iter().flatten().collect();
-        Self { data, dims }
-    }
-
-    pub fn from_array_3d(data: Vec<Vec<Vec<bool>>>) -> Shape {
-        let dims = (data.len(), data[0].len(), data[0][0].len());
-        let data = data.into_iter().flatten().flatten().collect();
-        Self { data, dims }
-    }
-
-    fn apply_transform(&self, transform: Transform) -> Shape {
-        let new_dims = (
-            get_index(self.dims, transform.0),
-            get_index(self.dims, transform.1),
-            get_index(self.dims, transform.2),
-        );
-        let mut ret = Shape::new(vec![false; new_dims.0 * new_dims.1 * new_dims.2], new_dims);
-        for i in 0..self.dims.0 {
-            for j in 0..self.dims.1 {
-                for k in 0..self.dims.2 {
-                    let pos = (i, j, k);
-                    let new_pos = (
-                        get_index_offset(pos, self.dims, transform.0),
-                        get_index_offset(pos, self.dims, transform.1),
-                        get_index_offset(pos, self.dims, transform.2),
-                    );
-                    ret[new_pos] = self[pos];
-                }
-            }
-        }
-        ret
-    }
-
     pub fn enumerate_transforms(&self) -> Vec<Shape> {
         let mut ret = vec![];
         for &transform in &TRANSFORMS {
@@ -133,25 +219,7 @@ impl Shape {
     }
 }
 
-impl Index<(usize, usize, usize)> for Shape {
-    type Output = bool;
-
-    fn index(&self, index: (usize, usize, usize)) -> &Self::Output {
-        let (x, y, z) = index;
-        let (_wx, wy, wz) = self.dims;
-        let index = x * wy * wz + y * wz + z;
-        &self.data[index]
-    }
-}
-
-impl IndexMut<(usize, usize, usize)> for Shape {
-    fn index_mut(&mut self, index: (usize, usize, usize)) -> &mut Self::Output {
-        let (x, y, z) = index;
-        let (_wx, wy, wz) = self.dims;
-        let index = x * wy * wz + y * wz + z;
-        &mut self.data[index]
-    }
-}
+pub type Answer = CubicGrid<Option<(usize, usize)>>;
 
 #[cfg(test)]
 mod tests {

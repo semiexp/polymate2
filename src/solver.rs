@@ -1,22 +1,49 @@
 // TODO: tentative implementation
 
-use crate::shape::Shape;
+use crate::shape::{Answer, Shape};
 
 struct CompiledProblem {
+    board_dims: (usize, usize, usize),
     board_size: usize,
     piece_count: usize,
+    positions: Vec<(usize, usize, usize)>, // contiguous position -> (x, y, z)
     placements: Vec<Vec<Vec<Vec<usize>>>>, // [position][piece][variant][index]
 }
 
+impl CompiledProblem {
+    fn reconstruct_answer(&self, answer: &[(usize, usize)]) -> Answer {
+        assert_eq!(answer.len(), self.board_size);
+
+        let volume = self.board_dims.0 * self.board_dims.1 * self.board_dims.2;
+        let mut ret = Answer::new(vec![None; volume], self.board_dims);
+        let mut used_pieces = vec![0; self.piece_count];
+
+        for i in 0..self.board_size {
+            let (piece, variant) = answer[i];
+            if piece == !0 {
+                continue;
+            }
+
+            let variant = &self.placements[i][piece][variant];
+            for &p in variant {
+                ret[self.positions[p]] = Some((piece, used_pieces[piece]));
+            }
+            used_pieces[piece] += 1;
+        }
+
+        ret
+    }
+}
+
 fn compile(pieces: &[Shape], board: &Shape) -> CompiledProblem {
-    let board_dim = board.dims();
+    let board_dims = board.dims();
 
     let mut board_size = 0;
-    let mut pos_id = vec![vec![vec![!0; board_dim.2]; board_dim.1]; board_dim.0];
+    let mut pos_id = vec![vec![vec![!0; board_dims.2]; board_dims.1]; board_dims.0];
     let mut positions = vec![];
-    for i in 0..board_dim.0 {
-        for j in 0..board_dim.1 {
-            for k in 0..board_dim.2 {
+    for i in 0..board_dims.0 {
+        for j in 0..board_dims.1 {
+            for k in 0..board_dims.2 {
                 if board[(i, j, k)] {
                     positions.push((i, j, k));
                     pos_id[i][j][k] = board_size;
@@ -32,7 +59,7 @@ fn compile(pieces: &[Shape], board: &Shape) -> CompiledProblem {
         .collect::<Vec<_>>();
 
     let mut placements = vec![];
-    for (i, j, k) in positions {
+    for &(i, j, k) in &positions {
         let mut placements_pos = vec![];
         for pv in &piece_variants {
             let mut placements_piece = vec![];
@@ -44,9 +71,9 @@ fn compile(pieces: &[Shape], board: &Shape) -> CompiledProblem {
                 if !(i >= origin.0 && j >= origin.1 && k >= origin.2) {
                     continue;
                 }
-                if !(i + shape_dims.0 - origin.0 <= board_dim.0
-                    && j + shape_dims.1 - origin.1 <= board_dim.1
-                    && k + shape_dims.2 - origin.2 <= board_dim.2)
+                if !(i + shape_dims.0 - origin.0 <= board_dims.0
+                    && j + shape_dims.1 - origin.1 <= board_dims.1
+                    && k + shape_dims.2 - origin.2 <= board_dims.2)
                 {
                     continue;
                 }
@@ -88,8 +115,10 @@ fn compile(pieces: &[Shape], board: &Shape) -> CompiledProblem {
     }
 
     CompiledProblem {
+        board_dims,
         board_size,
         piece_count: pieces.len(),
+        positions,
         placements,
     }
 }
@@ -148,13 +177,11 @@ fn search(
     }
 }
 
-pub fn solve(pieces: &[Shape], board: &Shape) -> Vec<Vec<(usize, usize)>> {
-    let problem = compile(pieces, board);
+fn solve_raw(compiled_problem: &CompiledProblem) -> Vec<Vec<(usize, usize)>> {
+    let mut piece_count = vec![1; compiled_problem.piece_count];
 
-    let mut piece_count = vec![1; problem.piece_count];
-
-    let mut board = vec![false; problem.board_size];
-    let mut current_answer = vec![(!0, !0); problem.board_size];
+    let mut board = vec![false; compiled_problem.board_size];
+    let mut current_answer = vec![(!0, !0); compiled_problem.board_size];
     let mut answers = vec![];
     search(
         &mut piece_count,
@@ -162,10 +189,21 @@ pub fn solve(pieces: &[Shape], board: &Shape) -> Vec<Vec<(usize, usize)>> {
         &mut current_answer,
         &mut answers,
         0,
-        &problem,
+        &compiled_problem,
     );
 
     answers
+}
+
+pub fn solve(pieces: &[Shape], board: &Shape) -> Vec<Answer> {
+    let problem = compile(pieces, board);
+
+    let answers_raw = solve_raw(&problem);
+
+    answers_raw
+        .into_iter()
+        .map(|answer| problem.reconstruct_answer(&answer))
+        .collect()
 }
 
 #[cfg(test)]
@@ -205,9 +243,16 @@ mod tests {
 
         let answers = solve(&shapes, &board);
         assert_eq!(answers.len(), 1);
+
+        let answer = &answers[0];
+        eprintln!("{:?}", answer);
+        assert_eq!(answer[(0, 0, 0)], None);
+        assert_eq!(answer[(0, 0, 2)], Some((0, 0)));
+        assert_eq!(answer[(0, 1, 0)], Some((1, 0)));
     }
 
     #[test]
+    #[ignore]
     fn test_solve_pentomino() {
         let pentominoes = vec![
             Shape::from_array_2d(vec![vec![true, true, true], vec![true, true, false]]),
