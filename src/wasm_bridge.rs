@@ -40,6 +40,9 @@ impl Answers {
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct Problem {
     pieces: Vec<Vec<Vec<Vec<i32>>>>,
+
+    #[tsify(optional)]
+    piece_count: Option<Vec<u32>>,
     board: Vec<Vec<Vec<i32>>>,
 }
 
@@ -67,6 +70,7 @@ pub fn solve(problem: Problem) -> Answers {
         .collect::<Vec<_>>();
     let board = make_shape(problem.board);
 
-    let answers = crate::solver::solve(&pieces, &board);
+    let piece_count = problem.piece_count.unwrap_or_else(|| vec![1; pieces.len()]);
+    let answers = crate::solver::solve(&pieces, &piece_count, &board);
     Answers { answers }
 }

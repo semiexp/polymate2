@@ -5,7 +5,7 @@ use crate::shape::{Answer, Shape};
 struct CompiledProblem {
     board_dims: (usize, usize, usize),
     board_size: usize,
-    piece_count: usize,
+    piece_count: Vec<u32>,
     positions: Vec<(usize, usize, usize)>, // contiguous position -> (x, y, z)
     placements: Vec<Vec<Vec<Vec<usize>>>>, // [position][piece][variant][index]
 }
@@ -16,7 +16,7 @@ impl CompiledProblem {
 
         let volume = self.board_dims.0 * self.board_dims.1 * self.board_dims.2;
         let mut ret = Answer::new(vec![None; volume], self.board_dims);
-        let mut used_pieces = vec![0; self.piece_count];
+        let mut used_pieces = vec![0; self.piece_count.len()];
 
         for i in 0..self.board_size {
             let (piece, variant) = answer[i];
@@ -35,7 +35,9 @@ impl CompiledProblem {
     }
 }
 
-fn compile(pieces: &[Shape], board: &Shape) -> CompiledProblem {
+fn compile(pieces: &[Shape], piece_count: Vec<u32>, board: &Shape) -> CompiledProblem {
+    assert_eq!(pieces.len(), piece_count.len());
+
     let board_dims = board.dims();
 
     let mut board_size = 0;
@@ -117,14 +119,14 @@ fn compile(pieces: &[Shape], board: &Shape) -> CompiledProblem {
     CompiledProblem {
         board_dims,
         board_size,
-        piece_count: pieces.len(),
+        piece_count,
         positions,
         placements,
     }
 }
 
 fn search(
-    piece_count: &mut [i32],
+    piece_count: &mut [u32],
     board: &mut [bool],
     current_answer: &mut [(usize, usize)],
     answers: &mut Vec<Vec<(usize, usize)>>,
@@ -141,7 +143,7 @@ fn search(
         return;
     }
 
-    for i in 0..problem.piece_count {
+    for i in 0..piece_count.len() {
         if piece_count[i] == 0 {
             continue;
         }
@@ -178,7 +180,7 @@ fn search(
 }
 
 fn solve_raw(compiled_problem: &CompiledProblem) -> Vec<Vec<(usize, usize)>> {
-    let mut piece_count = vec![1; compiled_problem.piece_count];
+    let mut piece_count = compiled_problem.piece_count.clone();
 
     let mut board = vec![false; compiled_problem.board_size];
     let mut current_answer = vec![(!0, !0); compiled_problem.board_size];
@@ -195,8 +197,8 @@ fn solve_raw(compiled_problem: &CompiledProblem) -> Vec<Vec<(usize, usize)>> {
     answers
 }
 
-pub fn solve(pieces: &[Shape], board: &Shape) -> Vec<Answer> {
-    let problem = compile(pieces, board);
+pub fn solve(pieces: &[Shape], piece_count: &[u32], board: &Shape) -> Vec<Answer> {
+    let problem = compile(pieces, piece_count.to_vec(), board);
 
     let answers_raw = solve_raw(&problem);
 
@@ -224,7 +226,7 @@ mod tests {
 
         let board = Shape::new(vec![true; 60], (1, 5, 3));
 
-        let answers = solve(&pentominoes, &board);
+        let answers = solve(&pentominoes, &[1; 3], &board);
         assert_eq!(answers.len(), 4);
     }
 
@@ -241,14 +243,49 @@ mod tests {
             vec![true, false, true, false],
         ]);
 
-        let answers = solve(&shapes, &board);
+        let answers = solve(&shapes, &[1; 2], &board);
         assert_eq!(answers.len(), 1);
 
         let answer = &answers[0];
-        eprintln!("{:?}", answer);
         assert_eq!(answer[(0, 0, 0)], None);
         assert_eq!(answer[(0, 0, 2)], Some((0, 0)));
         assert_eq!(answer[(0, 1, 0)], Some((1, 0)));
+    }
+
+    #[test]
+    fn test_solve_multiple_pieces() {
+        let shapes = vec![Shape::from_array_2d(vec![
+            vec![true, true, true],
+            vec![true, true, false],
+        ])];
+
+        let board = Shape::from_array_2d(vec![
+            vec![true, true, true, true],
+            vec![true, true, true, true],
+            vec![false, false, true, true],
+        ]);
+
+        let answers = solve(&shapes, &[2], &board);
+        assert_eq!(answers.len(), 1);
+
+        let answer = &answers[0];
+        assert_eq!(answer[(0, 0, 0)], Some((0, 0)));
+        assert_eq!(answer[(0, 0, 3)], Some((0, 1)));
+        assert_eq!(answer[(0, 1, 1)], Some((0, 0)));
+        assert_eq!(answer[(0, 1, 2)], Some((0, 1)));
+    }
+
+    #[test]
+    fn test_solve_multiple_pieces2() {
+        let shapes = vec![
+            Shape::from_array_2d(vec![vec![true, true, true], vec![true, true, false]]),
+            Shape::from_array_2d(vec![vec![true]]),
+        ];
+
+        let board = Shape::from_array_2d(vec![vec![true; 8]; 8]);
+
+        let answers = solve(&shapes, &[12, 4], &board);
+        assert_eq!(answers.len(), 1);
     }
 
     #[test]
@@ -302,9 +339,9 @@ mod tests {
             ]),
         ];
 
-        let board = Shape::new(vec![true; 60], (5, 4, 3));
+        let board = Shape::new(vec![true; 60], (1, 10, 6));
 
-        let answers = solve(&pentominoes, &board);
-        assert_eq!(answers.len(), 3940 * 8);
+        let answers = solve(&pentominoes, &[1; 12], &board);
+        assert_eq!(answers.len(), 2339 * 4);
     }
 }
