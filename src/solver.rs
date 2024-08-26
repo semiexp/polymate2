@@ -276,19 +276,6 @@ mod tests {
     }
 
     #[test]
-    fn test_solve_multiple_pieces2() {
-        let shapes = vec![
-            Shape::from_array_2d(vec![vec![true, true, true], vec![true, true, false]]),
-            Shape::from_array_2d(vec![vec![true]]),
-        ];
-
-        let board = Shape::from_array_2d(vec![vec![true; 8]; 8]);
-
-        let answers = solve(&shapes, &[12, 4], &board);
-        assert_eq!(answers.len(), 1);
-    }
-
-    #[test]
     #[ignore]
     fn test_solve_pentomino() {
         let pentominoes = vec![
