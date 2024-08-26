@@ -71,6 +71,9 @@ pub fn solve(problem: Problem) -> Answers {
     let board = make_shape(problem.board);
 
     let piece_count = problem.piece_count.unwrap_or_else(|| vec![1; pieces.len()]);
-    let answers = crate::solver::solve(&pieces, &piece_count, &board);
+    let config = crate::solver::Config {
+        identify_transformed_answers: true,
+    };
+    let answers = crate::solver::solve(&pieces, &piece_count, &board, config);
     Answers { answers }
 }

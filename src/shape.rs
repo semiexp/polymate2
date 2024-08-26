@@ -27,7 +27,7 @@ impl<T> CubicGrid<T> {
         Self { data, dims }
     }
 
-    fn apply_transform(&self, transform: Transform) -> CubicGrid<T>
+    pub(crate) fn apply_transform(&self, transform: Transform) -> CubicGrid<T>
     where
         T: Clone,
     {
@@ -79,7 +79,7 @@ impl<T> IndexMut<(usize, usize, usize)> for CubicGrid<T> {
     }
 }
 
-type Transform = (usize, usize, usize);
+pub(crate) type Transform = (usize, usize, usize);
 
 const TRANSFORMS: [Transform; 24] = [
     (0, 1, 2),
@@ -202,6 +202,17 @@ impl Shape {
         }
         ret.sort();
         ret.dedup();
+        ret
+    }
+
+    pub(crate) fn compute_symmetry(&self) -> Vec<Transform> {
+        let mut ret = vec![];
+        for tr in &TRANSFORMS {
+            let transformed = self.apply_transform(*tr);
+            if transformed == *self {
+                ret.push(*tr);
+            }
+        }
         ret
     }
 

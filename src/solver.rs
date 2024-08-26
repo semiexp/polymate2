@@ -1,13 +1,22 @@
 // TODO: tentative implementation
 
-use crate::shape::{Answer, Shape};
+use std::collections::HashMap;
+
+use crate::shape::{Answer, CubicGrid, Shape, Transform};
+
+#[derive(Clone, Copy)]
+pub struct Config {
+    pub identify_transformed_answers: bool,
+}
 
 struct CompiledProblem {
     board_dims: (usize, usize, usize),
     board_size: usize,
+    board_symmetry: Vec<Transform>,
     piece_count: Vec<u32>,
     positions: Vec<(usize, usize, usize)>, // contiguous position -> (x, y, z)
     placements: Vec<Vec<Vec<Vec<usize>>>>, // [position][piece][variant][index]
+    config: Config,
 }
 
 impl CompiledProblem {
@@ -35,7 +44,12 @@ impl CompiledProblem {
     }
 }
 
-fn compile(pieces: &[Shape], piece_count: Vec<u32>, board: &Shape) -> CompiledProblem {
+fn compile(
+    pieces: &[Shape],
+    piece_count: Vec<u32>,
+    board: &Shape,
+    config: Config,
+) -> CompiledProblem {
     assert_eq!(pieces.len(), piece_count.len());
 
     let board_dims = board.dims();
@@ -119,9 +133,29 @@ fn compile(pieces: &[Shape], piece_count: Vec<u32>, board: &Shape) -> CompiledPr
     CompiledProblem {
         board_dims,
         board_size,
+        board_symmetry: board.compute_symmetry(),
         piece_count,
         positions,
         placements,
+        config,
+    }
+}
+
+fn renormalize_piece_indices(answer: &mut CubicGrid<Option<(usize, usize)>>, num_pieces: usize) {
+    let mut translate_map = HashMap::<(usize, usize), usize>::new();
+    let mut cur_idx = vec![0; num_pieces];
+
+    for p in &mut answer.data {
+        if let Some((piece, variant)) = p {
+            if let Some(&new_idx) = translate_map.get(&(*piece, *variant)) {
+                *variant = new_idx;
+            } else {
+                let new_idx = cur_idx[*piece];
+                cur_idx[*piece] += 1;
+                translate_map.insert((*piece, *variant), new_idx);
+                *variant = new_idx;
+            }
+        }
     }
 }
 
@@ -139,6 +173,17 @@ fn search(
     }
 
     if pos == problem.board_size {
+        if problem.config.identify_transformed_answers && problem.board_symmetry.len() > 1 {
+            let answer = problem.reconstruct_answer(current_answer);
+            for tr in &problem.board_symmetry {
+                let mut answer_transformed = answer.apply_transform(*tr);
+                renormalize_piece_indices(&mut answer_transformed, problem.piece_count.len());
+                if !(answer <= answer_transformed) {
+                    return;
+                }
+            }
+        }
+
         answers.push(current_answer.to_vec());
         return;
     }
@@ -197,8 +242,8 @@ fn solve_raw(compiled_problem: &CompiledProblem) -> Vec<Vec<(usize, usize)>> {
     answers
 }
 
-pub fn solve(pieces: &[Shape], piece_count: &[u32], board: &Shape) -> Vec<Answer> {
-    let problem = compile(pieces, piece_count.to_vec(), board);
+pub fn solve(pieces: &[Shape], piece_count: &[u32], board: &Shape, config: Config) -> Vec<Answer> {
+    let problem = compile(pieces, piece_count.to_vec(), board, config);
 
     let answers_raw = solve_raw(&problem);
 
@@ -226,7 +271,11 @@ mod tests {
 
         let board = Shape::new(vec![true; 60], (1, 5, 3));
 
-        let answers = solve(&pentominoes, &[1; 3], &board);
+        let config = Config {
+            identify_transformed_answers: false,
+        };
+
+        let answers = solve(&pentominoes, &[1; 3], &board, config);
         assert_eq!(answers.len(), 4);
     }
 
@@ -243,7 +292,11 @@ mod tests {
             vec![true, false, true, false],
         ]);
 
-        let answers = solve(&shapes, &[1; 2], &board);
+        let config = Config {
+            identify_transformed_answers: false,
+        };
+
+        let answers = solve(&shapes, &[1; 2], &board, config);
         assert_eq!(answers.len(), 1);
 
         let answer = &answers[0];
@@ -265,7 +318,11 @@ mod tests {
             vec![false, false, true, true],
         ]);
 
-        let answers = solve(&shapes, &[2], &board);
+        let config = Config {
+            identify_transformed_answers: false,
+        };
+
+        let answers = solve(&shapes, &[2], &board, config);
         assert_eq!(answers.len(), 1);
 
         let answer = &answers[0];
@@ -328,7 +385,64 @@ mod tests {
 
         let board = Shape::new(vec![true; 60], (1, 10, 6));
 
-        let answers = solve(&pentominoes, &[1; 12], &board);
-        assert_eq!(answers.len(), 2339 * 4);
+        {
+            let config = Config {
+                identify_transformed_answers: false,
+            };
+
+            let answers = solve(&pentominoes, &[1; 12], &board, config);
+            assert_eq!(answers.len(), 2339 * 4);
+        }
+
+        {
+            let config = Config {
+                identify_transformed_answers: true,
+            };
+
+            let answers = solve(&pentominoes, &[1; 12], &board, config);
+            assert_eq!(answers.len(), 2339);
+        }
+    }
+
+    #[test]
+    fn test_soma_cube() {
+        let pieces = vec![
+            Shape::from_array_2d(vec![vec![true, true, true], vec![true, false, false]]),
+            Shape::from_array_2d(vec![vec![true, true, true], vec![false, true, false]]),
+            Shape::from_array_2d(vec![vec![true, true, false], vec![false, true, true]]),
+            Shape::from_array_2d(vec![vec![true, true], vec![true, false]]),
+            Shape::from_array_3d(vec![
+                vec![vec![true, false], vec![false, false]],
+                vec![vec![true, true], vec![true, false]],
+            ]),
+            Shape::from_array_3d(vec![
+                vec![vec![false, true], vec![false, false]],
+                vec![vec![true, true], vec![true, false]],
+            ]),
+            Shape::from_array_3d(vec![
+                vec![vec![false, false], vec![true, false]],
+                vec![vec![true, true], vec![true, false]],
+            ]),
+        ];
+
+        let board = Shape::new(vec![true; 27], (3, 3, 3));
+
+        {
+            let config = Config {
+                identify_transformed_answers: false,
+            };
+
+            let answers = solve(&pieces, &[1; 7], &board, config);
+            assert_eq!(answers.len(), 240 * 2 * 24);
+        }
+
+        {
+            let config = Config {
+                identify_transformed_answers: true,
+            };
+
+            let answers = solve(&pieces, &[1; 7], &board, config);
+            assert_eq!(answers.len(), 240 * 2);
+        }
     }
 }
