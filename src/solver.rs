@@ -238,18 +238,22 @@ pub fn solve(pieces: &[Shape], piece_count: &[u32], board: &Shape, config: Confi
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::tests::{shape_from_string, shapes_from_strings};
 
     #[test]
     fn test_solve_pentomino_small() {
-        let pentominoes = vec![
-            Shape::from_array_2d(vec![vec![true, true, true], vec![true, true, false]]),
-            Shape::from_array_2d(vec![vec![true, true, true], vec![true, false, true]]),
-            Shape::from_array_2d(vec![
-                vec![false, true, true],
-                vec![true, true, false],
-                vec![false, true, false],
-            ]),
-        ];
+        let pentominoes = shapes_from_strings(&[
+            // P
+            "###
+             ##.",
+            // U
+            "###
+             #.#",
+            // F
+            ".##
+             ##.
+             .#.",
+        ]);
 
         let board = Shape::new(vec![true; 60], (1, 5, 3));
 
@@ -263,16 +267,20 @@ mod tests {
 
     #[test]
     fn test_solve_irregular_shape() {
-        let shapes = vec![
-            Shape::from_array_2d(vec![vec![true, true, true], vec![true, false, false]]),
-            Shape::from_array_2d(vec![vec![true, true, true], vec![true, false, true]]),
-        ];
-
-        let board = Shape::from_array_2d(vec![
-            vec![false, true, true, true],
-            vec![true, true, true, true],
-            vec![true, false, true, false],
+        let shapes = shapes_from_strings(&[
+            // l
+            "###
+             #..",
+            // U
+            "###
+             #.#",
         ]);
+
+        let board = shape_from_string(
+            ".###
+             ####
+             #.#.",
+        );
 
         let config = Config {
             identify_transformed_answers: false,
@@ -289,16 +297,17 @@ mod tests {
 
     #[test]
     fn test_solve_multiple_pieces() {
-        let shapes = vec![Shape::from_array_2d(vec![
-            vec![true, true, true],
-            vec![true, true, false],
-        ])];
-
-        let board = Shape::from_array_2d(vec![
-            vec![true, true, true, true],
-            vec![true, true, true, true],
-            vec![false, false, true, true],
+        let shapes = shapes_from_strings(&[
+            // P
+            "###
+             ##.",
         ]);
+
+        let board = shape_from_string(
+            "####
+             ####
+             ..##",
+        );
 
         let config = Config {
             identify_transformed_answers: false,
@@ -317,53 +326,49 @@ mod tests {
     #[test]
     #[ignore]
     fn test_solve_pentomino() {
-        let pentominoes = vec![
-            Shape::from_array_2d(vec![vec![true, true, true], vec![true, true, false]]),
-            Shape::from_array_2d(vec![vec![true, true, true], vec![true, false, true]]),
-            Shape::from_array_2d(vec![
-                vec![true, true, true, true],
-                vec![true, false, false, false],
-            ]),
-            Shape::from_array_2d(vec![
-                vec![true, true, true, true],
-                vec![false, true, false, false],
-            ]),
-            Shape::from_array_2d(vec![
-                vec![false, true, true, true],
-                vec![true, true, false, false],
-            ]),
-            Shape::from_array_2d(vec![vec![true, true, true, true, true]]),
-            Shape::from_array_2d(vec![
-                vec![true, true, true],
-                vec![true, false, false],
-                vec![true, false, false],
-            ]),
-            Shape::from_array_2d(vec![
-                vec![false, true, true],
-                vec![true, true, false],
-                vec![true, false, false],
-            ]),
-            Shape::from_array_2d(vec![
-                vec![true, true, true],
-                vec![false, true, false],
-                vec![false, true, false],
-            ]),
-            Shape::from_array_2d(vec![
-                vec![false, true, true],
-                vec![false, true, false],
-                vec![true, true, false],
-            ]),
-            Shape::from_array_2d(vec![
-                vec![false, true, true],
-                vec![true, true, false],
-                vec![false, true, false],
-            ]),
-            Shape::from_array_2d(vec![
-                vec![false, true, false],
-                vec![true, true, true],
-                vec![false, true, false],
-            ]),
-        ];
+        let pentominoes = shapes_from_strings(&[
+            // P
+            "###
+             ##.",
+            // U
+            "###
+             #.#",
+            // L
+            "####
+             #...",
+            // Y
+            "####
+             .#..",
+            // N
+            ".###
+             ##..",
+            // I
+            "#####",
+            // V
+            "###
+             #..
+             #..",
+            // W
+            ".##
+             ##.
+             #..",
+            // T
+            "###
+             .#.
+             .#.",
+            // Z
+            ".##
+             .#.
+             ##.",
+            // F
+            ".##
+             ##.
+             .#.",
+            // X
+            ".#.
+             ###
+             .#.",
+        ]);
 
         let board = Shape::new(vec![true; 60], (1, 10, 6));
 
@@ -388,24 +393,29 @@ mod tests {
 
     #[test]
     fn test_soma_cube() {
-        let pieces = vec![
-            Shape::from_array_2d(vec![vec![true, true, true], vec![true, false, false]]),
-            Shape::from_array_2d(vec![vec![true, true, true], vec![false, true, false]]),
-            Shape::from_array_2d(vec![vec![true, true, false], vec![false, true, true]]),
-            Shape::from_array_2d(vec![vec![true, true], vec![true, false]]),
-            Shape::from_array_3d(vec![
-                vec![vec![true, false], vec![false, false]],
-                vec![vec![true, true], vec![true, false]],
-            ]),
-            Shape::from_array_3d(vec![
-                vec![vec![false, true], vec![false, false]],
-                vec![vec![true, true], vec![true, false]],
-            ]),
-            Shape::from_array_3d(vec![
-                vec![vec![false, false], vec![true, false]],
-                vec![vec![true, true], vec![true, false]],
-            ]),
-        ];
+        let pieces = shapes_from_strings(&[
+            // l
+            "###
+             #..",
+            // t
+            "###
+             .#.",
+            // n
+            "##.
+             .##",
+            // b
+            "##
+             #.",
+            // x
+            "#. ##
+             .. #.",
+            // y
+            ".. ##
+             #. #.",
+            // z
+            ".# ##
+             .. #.",
+        ]);
 
         let board = Shape::new(vec![true; 27], (3, 3, 3));
 
