@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use crate::shape::{Answer, CubicGrid, Shape, Transform};
+use crate::utils;
 
 #[derive(Clone, Copy)]
 pub struct Config {
@@ -57,16 +58,10 @@ fn compile(
     let mut board_size = 0;
     let mut pos_id = vec![vec![vec![!0; board_dims.2]; board_dims.1]; board_dims.0];
     let mut positions = vec![];
-    for i in 0..board_dims.0 {
-        for j in 0..board_dims.1 {
-            for k in 0..board_dims.2 {
-                if board[(i, j, k)] {
-                    positions.push((i, j, k));
-                    pos_id[i][j][k] = board_size;
-                    board_size += 1;
-                }
-            }
-        }
+    for (i, j, k) in utils::position_iterator(board) {
+        positions.push((i, j, k));
+        pos_id[i][j][k] = board_size;
+        board_size += 1;
     }
 
     let piece_variants = pieces
@@ -94,34 +89,21 @@ fn compile(
                     continue;
                 }
 
-                for pi in 0..shape_dims.0 {
-                    for pj in 0..shape_dims.1 {
-                        for pk in 0..shape_dims.2 {
-                            if variant[(pi, pj, pk)] {
-                                if !board[(i + pi - origin.0, j + pj - origin.1, k + pk - origin.2)]
-                                {
-                                    continue 'outer;
-                                }
-                            }
-                        }
+                for (pi, pj, pk) in utils::position_iterator(variant) {
+                    if !board[(i + pi - origin.0, j + pj - origin.1, k + pk - origin.2)] {
+                        continue 'outer;
                     }
                 }
 
                 let mut placement = vec![];
-                for pi in 0..shape_dims.0 {
-                    for pj in 0..shape_dims.1 {
-                        for pk in 0..shape_dims.2 {
-                            if variant[(pi, pj, pk)] {
-                                let ti = i + pi - origin.0;
-                                let tj = j + pj - origin.1;
-                                let tk = k + pk - origin.2;
+                for (pi, pj, pk) in utils::position_iterator(variant) {
+                    let ti = i + pi - origin.0;
+                    let tj = j + pj - origin.1;
+                    let tk = k + pk - origin.2;
 
-                                let v = pos_id[ti][tj][tk];
-                                assert_ne!(v, !0);
-                                placement.push(v);
-                            }
-                        }
-                    }
+                    let v = pos_id[ti][tj][tk];
+                    assert_ne!(v, !0);
+                    placement.push(v);
                 }
                 placements_piece.push(placement);
             }
