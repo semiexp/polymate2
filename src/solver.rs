@@ -76,6 +76,30 @@ impl CompiledProblem {
 
         Some(ret)
     }
+
+    fn is_normal_form(&self, answer: &Answer) -> bool {
+        if self.config.identify_transformed_answers {
+            for tr in &self.board_symmetry {
+                let mut answer_transformed = answer.apply_transform(*tr);
+                renormalize_piece_indices(&mut answer_transformed, self.piece_count.len());
+                if !(answer <= &answer_transformed) {
+                    return false;
+                }
+            }
+            if self.config.identify_mirrored_answers {
+                for tr in &self.board_mirror_symmetry {
+                    let mut answer_transformed = answer.apply_transform(*tr);
+                    answer_transformed = self.to_mirrored(&answer_transformed).unwrap();
+                    renormalize_piece_indices(&mut answer_transformed, self.piece_count.len());
+                    if !(answer <= &answer_transformed) {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        true
+    }
 }
 
 fn dedup_pieces(
@@ -268,25 +292,9 @@ fn search(
     }
 
     if pos == problem.board_size {
-        if problem.config.identify_transformed_answers && problem.board_symmetry.len() > 1 {
-            let answer = problem.reconstruct_answer(current_answer);
-            for tr in &problem.board_symmetry {
-                let mut answer_transformed = answer.apply_transform(*tr);
-                renormalize_piece_indices(&mut answer_transformed, problem.piece_count.len());
-                if !(answer <= answer_transformed) {
-                    return;
-                }
-            }
-            if problem.config.identify_mirrored_answers {
-                for tr in &problem.board_mirror_symmetry {
-                    let mut answer_transformed = answer.apply_transform(*tr);
-                    answer_transformed = problem.to_mirrored(&answer_transformed).unwrap();
-                    renormalize_piece_indices(&mut answer_transformed, problem.piece_count.len());
-                    if !(answer <= answer_transformed) {
-                        return;
-                    }
-                }
-            }
+        let answer = problem.reconstruct_answer(current_answer);
+        if !problem.is_normal_form(&answer) {
+            return;
         }
 
         answers.push(current_answer.to_vec());
