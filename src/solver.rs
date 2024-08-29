@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::shape::{Answer, CubicGrid, Shape, Transform};
+use crate::shape::{dedup_shapes, Answer, CubicGrid, Shape, Transform};
 use crate::utils;
 
 #[derive(Clone, Copy)]
@@ -17,6 +17,7 @@ struct CompiledProblem {
     piece_count: Vec<u32>,
     positions: Vec<(usize, usize, usize)>, // contiguous position -> (x, y, z)
     placements: Vec<Vec<Vec<Vec<usize>>>>, // [position][piece][variant][index]
+    original_piece_ids: Vec<Vec<(usize, usize)>>,
     config: Config,
 }
 
@@ -43,6 +44,52 @@ impl CompiledProblem {
 
         ret
     }
+
+    fn to_original_ids(&self, answer: &Answer) -> Answer {
+        let mut ret = Answer::new(vec![None; answer.data.len()], answer.dims());
+
+        for i in 0..answer.data.len() {
+            if let Some((piece, piece_id)) = answer.data[i] {
+                let original_piece_id = self.original_piece_ids[piece][piece_id];
+                ret.data[i] = Some(original_piece_id);
+            }
+        }
+
+        ret
+    }
+}
+
+fn dedup_pieces(
+    pieces: &[Shape],
+    piece_count: &[u32],
+) -> (Vec<Shape>, Vec<u32>, Vec<Vec<(usize, usize)>>) {
+    assert_eq!(pieces.len(), piece_count.len());
+
+    let dedup_map = dedup_shapes(pieces);
+
+    let mut pieces_after_dedup = vec![];
+    let mut piece_count_after_dedup = vec![];
+    let mut original_piece_ids = vec![];
+
+    for orig_ids in dedup_map {
+        pieces_after_dedup.push(pieces[orig_ids[0]].clone());
+
+        let mut ids = vec![];
+        for id in orig_ids {
+            for i in 0..piece_count[id] {
+                ids.push((id, i as usize));
+            }
+        }
+
+        piece_count_after_dedup.push(ids.len() as u32);
+        original_piece_ids.push(ids);
+    }
+
+    (
+        pieces_after_dedup,
+        piece_count_after_dedup,
+        original_piece_ids,
+    )
 }
 
 fn compile(
@@ -51,6 +98,7 @@ fn compile(
     board: &Shape,
     config: Config,
 ) -> CompiledProblem {
+    let (pieces, piece_count, original_piece_ids) = dedup_pieces(pieces, &piece_count);
     assert_eq!(pieces.len(), piece_count.len());
 
     let board_dims = board.dims();
@@ -120,6 +168,7 @@ fn compile(
         positions,
         placements,
         config,
+        original_piece_ids,
     }
 }
 
@@ -231,7 +280,7 @@ pub fn solve(pieces: &[Shape], piece_count: &[u32], board: &Shape, config: Confi
 
     answers_raw
         .into_iter()
-        .map(|answer| problem.reconstruct_answer(&answer))
+        .map(|answer| problem.to_original_ids(&problem.reconstruct_answer(&answer)))
         .collect()
 }
 
@@ -321,6 +370,38 @@ mod tests {
         assert_eq!(answer[(0, 0, 3)], Some((0, 1)));
         assert_eq!(answer[(0, 1, 1)], Some((0, 0)));
         assert_eq!(answer[(0, 1, 2)], Some((0, 1)));
+    }
+
+    #[test]
+    fn test_solve_duplicated_pieces() {
+        let shapes = shapes_from_strings(&[
+            // P
+            "###
+             ##.",
+            // P (duplicated)
+            "#.
+             ##
+             ##",
+        ]);
+
+        let board = shape_from_string(
+            "####
+             ####
+             ..##",
+        );
+
+        let config = Config {
+            identify_transformed_answers: false,
+        };
+
+        let answers = solve(&shapes, &[1, 1], &board, config);
+        assert_eq!(answers.len(), 1);
+
+        let answer = &answers[0];
+        assert_eq!(answer[(0, 0, 0)], Some((0, 0)));
+        assert_eq!(answer[(0, 0, 3)], Some((1, 0)));
+        assert_eq!(answer[(0, 1, 1)], Some((0, 0)));
+        assert_eq!(answer[(0, 1, 2)], Some((1, 0)));
     }
 
     #[test]

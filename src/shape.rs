@@ -228,6 +228,34 @@ impl Shape {
 
         panic!("empty shape");
     }
+
+    pub fn normalize(&self) -> Shape {
+        self.enumerate_transforms().into_iter().min().unwrap()
+    }
+}
+
+pub fn dedup_shapes(shapes: &[Shape]) -> Vec<Vec<usize>> {
+    let mut normalized_shapes = shapes
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.normalize(), i))
+        .collect::<Vec<_>>();
+    normalized_shapes.sort();
+
+    let mut ret = vec![];
+    let mut i = 0;
+    while i < normalized_shapes.len() {
+        let mut group = vec![];
+        let mut j = i;
+        while j < normalized_shapes.len() && normalized_shapes[j].0 == normalized_shapes[i].0 {
+            group.push(normalized_shapes[j].1);
+            j += 1;
+        }
+        ret.push(group);
+        i = j;
+    }
+
+    ret
 }
 
 pub type Answer = CubicGrid<Option<(usize, usize)>>;
