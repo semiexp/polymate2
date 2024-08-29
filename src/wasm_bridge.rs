@@ -73,6 +73,7 @@ pub fn solve(problem: Problem) -> Answers {
     let piece_count = problem.piece_count.unwrap_or_else(|| vec![1; pieces.len()]);
     let config = crate::solver::Config {
         identify_transformed_answers: true,
+        identify_mirrored_answers: true,
     };
     let answers = crate::solver::solve(&pieces, &piece_count, &board, config);
     Answers { answers }

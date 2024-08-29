@@ -108,6 +108,33 @@ const TRANSFORMS: [Transform; 24] = [
     (!2, !1, !0),
 ];
 
+const MIRROR_TRANSFORMS: [Transform; 24] = [
+    (!0, 1, 2),
+    (!0, !1, !2),
+    (!!0, 1, !2),
+    (!!0, !1, 2),
+    (!0, 2, !1),
+    (!0, !2, 1),
+    (!!0, 2, 1),
+    (!!0, !2, !1),
+    (!1, 0, !2),
+    (!1, !0, 2),
+    (!!1, 0, 2),
+    (!!1, !0, !2),
+    (!1, 2, 0),
+    (!1, !2, !0),
+    (!!1, 2, !0),
+    (!!1, !2, 0),
+    (!2, 0, 1),
+    (!2, !0, !1),
+    (!!2, 0, !1),
+    (!!2, !0, 1),
+    (!2, 1, !0),
+    (!2, !1, 0),
+    (!!2, 1, 0),
+    (!!2, !1, !0),
+];
+
 fn get_index(dims: (usize, usize, usize), idx: usize) -> usize {
     if idx == 0 || idx == !0 {
         dims.0
@@ -205,9 +232,24 @@ impl Shape {
         ret
     }
 
+    pub fn mirror(&self) -> Shape {
+        self.apply_transform((!0, 1, 2))
+    }
+
     pub(crate) fn compute_symmetry(&self) -> Vec<Transform> {
         let mut ret = vec![];
         for tr in &TRANSFORMS {
+            let transformed = self.apply_transform(*tr);
+            if transformed == *self {
+                ret.push(*tr);
+            }
+        }
+        ret
+    }
+
+    pub(crate) fn compute_mirroring_symmetry(&self) -> Vec<Transform> {
+        let mut ret = vec![];
+        for tr in &MIRROR_TRANSFORMS {
             let transformed = self.apply_transform(*tr);
             if transformed == *self {
                 ret.push(*tr);

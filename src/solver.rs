@@ -8,15 +8,18 @@ use crate::utils;
 #[derive(Clone, Copy)]
 pub struct Config {
     pub identify_transformed_answers: bool,
+    pub identify_mirrored_answers: bool,
 }
 
 struct CompiledProblem {
     board_dims: (usize, usize, usize),
     board_size: usize,
     board_symmetry: Vec<Transform>,
+    board_mirror_symmetry: Vec<Transform>,
     piece_count: Vec<u32>,
     positions: Vec<(usize, usize, usize)>, // contiguous position -> (x, y, z)
     placements: Vec<Vec<Vec<Vec<usize>>>>, // [position][piece][variant][index]
+    mirrored_piece_ids: Vec<Vec<Option<(usize, usize)>>>,
     original_piece_ids: Vec<Vec<(usize, usize)>>,
     config: Config,
 }
@@ -57,6 +60,22 @@ impl CompiledProblem {
 
         ret
     }
+
+    fn to_mirrored(&self, answer: &Answer) -> Option<Answer> {
+        let mut ret = Answer::new(vec![None; answer.data.len()], answer.dims());
+
+        for i in 0..answer.data.len() {
+            if let Some((piece, piece_id)) = answer.data[i] {
+                if let Some(e) = self.mirrored_piece_ids[piece][piece_id] {
+                    ret.data[i] = Some(e);
+                } else {
+                    return None;
+                }
+            }
+        }
+
+        Some(ret)
+    }
 }
 
 fn dedup_pieces(
@@ -92,6 +111,46 @@ fn dedup_pieces(
     )
 }
 
+fn compute_mirrored_piece_ids(
+    pieces: &[Shape],
+    piece_count: &[u32],
+) -> Vec<Vec<Option<(usize, usize)>>> {
+    let mut mirrored_piece_ids = vec![];
+
+    let mut normalized_piece_and_mirror = vec![];
+    for piece in pieces {
+        let normalized_piece = piece.normalize();
+        let mirrored_piece = piece.mirror().normalize();
+        normalized_piece_and_mirror.push((normalized_piece, mirrored_piece));
+    }
+
+    for i in 0..pieces.len() {
+        let mut mirrored_piece_id = None;
+        for j in 0..pieces.len() {
+            if normalized_piece_and_mirror[i].0 == normalized_piece_and_mirror[j].1 {
+                assert!(mirrored_piece_id.is_none(), "pieces should be deduplicated");
+                mirrored_piece_id = Some(j);
+            }
+        }
+
+        if let Some(j) = mirrored_piece_id {
+            let mut ids = vec![];
+            for k in 0..piece_count[i] {
+                if k < piece_count[j] {
+                    ids.push(Some((j, k as usize)));
+                } else {
+                    ids.push(None);
+                }
+            }
+            mirrored_piece_ids.push(ids);
+        } else {
+            mirrored_piece_ids.push(vec![None; piece_count[i] as usize]);
+        }
+    }
+
+    mirrored_piece_ids
+}
+
 fn compile(
     pieces: &[Shape],
     piece_count: Vec<u32>,
@@ -100,6 +159,8 @@ fn compile(
 ) -> CompiledProblem {
     let (pieces, piece_count, original_piece_ids) = dedup_pieces(pieces, &piece_count);
     assert_eq!(pieces.len(), piece_count.len());
+
+    let mirrored_piece_ids = compute_mirrored_piece_ids(&pieces, &piece_count);
 
     let board_dims = board.dims();
 
@@ -165,11 +226,13 @@ fn compile(
         board_dims,
         board_size,
         board_symmetry: board.compute_symmetry(),
+        board_mirror_symmetry: board.compute_mirroring_symmetry(),
         piece_count,
         positions,
         placements,
-        config,
+        mirrored_piece_ids,
         original_piece_ids,
+        config,
     }
 }
 
@@ -212,6 +275,16 @@ fn search(
                 renormalize_piece_indices(&mut answer_transformed, problem.piece_count.len());
                 if !(answer <= answer_transformed) {
                     return;
+                }
+            }
+            if problem.config.identify_mirrored_answers {
+                for tr in &problem.board_mirror_symmetry {
+                    let mut answer_transformed = answer.apply_transform(*tr);
+                    answer_transformed = problem.to_mirrored(&answer_transformed).unwrap();
+                    renormalize_piece_indices(&mut answer_transformed, problem.piece_count.len());
+                    if !(answer <= answer_transformed) {
+                        return;
+                    }
                 }
             }
         }
@@ -275,6 +348,10 @@ fn solve_raw(compiled_problem: &CompiledProblem) -> Vec<Vec<(usize, usize)>> {
 }
 
 pub fn solve(pieces: &[Shape], piece_count: &[u32], board: &Shape, config: Config) -> Vec<Answer> {
+    if config.identify_mirrored_answers {
+        assert!(config.identify_transformed_answers);
+    }
+
     let problem = compile(pieces, piece_count.to_vec(), board, config);
 
     let answers_raw = solve_raw(&problem);
@@ -309,6 +386,7 @@ mod tests {
 
         let config = Config {
             identify_transformed_answers: false,
+            identify_mirrored_answers: false,
         };
 
         let answers = solve(&pentominoes, &[1; 3], &board, config);
@@ -334,6 +412,7 @@ mod tests {
 
         let config = Config {
             identify_transformed_answers: false,
+            identify_mirrored_answers: false,
         };
 
         let answers = solve(&shapes, &[1; 2], &board, config);
@@ -361,6 +440,7 @@ mod tests {
 
         let config = Config {
             identify_transformed_answers: false,
+            identify_mirrored_answers: false,
         };
 
         let answers = solve(&shapes, &[2], &board, config);
@@ -393,6 +473,7 @@ mod tests {
 
         let config = Config {
             identify_transformed_answers: false,
+            identify_mirrored_answers: false,
         };
 
         let answers = solve(&shapes, &[1, 1], &board, config);
@@ -457,6 +538,7 @@ mod tests {
         {
             let config = Config {
                 identify_transformed_answers: false,
+                identify_mirrored_answers: false,
             };
 
             let answers = solve(&pentominoes, &[1; 12], &board, config);
@@ -466,6 +548,7 @@ mod tests {
         {
             let config = Config {
                 identify_transformed_answers: true,
+                identify_mirrored_answers: false,
             };
 
             let answers = solve(&pentominoes, &[1; 12], &board, config);
@@ -504,6 +587,7 @@ mod tests {
         {
             let config = Config {
                 identify_transformed_answers: false,
+                identify_mirrored_answers: false,
             };
 
             let answers = solve(&pieces, &[1; 7], &board, config);
@@ -513,10 +597,21 @@ mod tests {
         {
             let config = Config {
                 identify_transformed_answers: true,
+                identify_mirrored_answers: false,
             };
 
             let answers = solve(&pieces, &[1; 7], &board, config);
             assert_eq!(answers.len(), 240 * 2);
+        }
+
+        {
+            let config = Config {
+                identify_transformed_answers: true,
+                identify_mirrored_answers: true,
+            };
+
+            let answers = solve(&pieces, &[1; 7], &board, config);
+            assert_eq!(answers.len(), 240);
         }
     }
 }
