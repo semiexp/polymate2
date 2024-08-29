@@ -103,13 +103,14 @@ fn compile(
 
     let board_dims = board.dims();
 
-    let mut board_size = 0;
-    let mut pos_id = vec![vec![vec![!0; board_dims.2]; board_dims.1]; board_dims.0];
-    let mut positions = vec![];
-    for (i, j, k) in utils::position_iterator(board) {
-        positions.push((i, j, k));
-        pos_id[i][j][k] = board_size;
-        board_size += 1;
+    let positions = utils::position_iterator(board).collect::<Vec<_>>();
+    let board_size = positions.len();
+    let mut pos_id = CubicGrid::new(
+        vec![!0; board_dims.0 * board_dims.1 * board_dims.2],
+        board_dims,
+    );
+    for (idx, p) in positions.iter().enumerate() {
+        pos_id[*p] = idx;
     }
 
     let piece_variants = pieces
@@ -149,7 +150,7 @@ fn compile(
                     let tj = j + pj - origin.1;
                     let tk = k + pk - origin.2;
 
-                    let v = pos_id[ti][tj][tk];
+                    let v = pos_id[(ti, tj, tk)];
                     assert_ne!(v, !0);
                     placement.push(v);
                 }
