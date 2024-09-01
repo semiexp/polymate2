@@ -81,59 +81,45 @@ impl<T> IndexMut<(usize, usize, usize)> for CubicGrid<T> {
 
 pub(crate) type Transform = (usize, usize, usize);
 
-const TRANSFORMS: [Transform; 24] = [
-    (0, 1, 2),
-    (0, !1, !2),
-    (!0, 1, !2),
-    (!0, !1, 2),
-    (0, 2, !1),
-    (0, !2, 1),
-    (!0, 2, 1),
-    (!0, !2, !1),
-    (1, 0, !2),
-    (1, !0, 2),
-    (!1, 0, 2),
-    (!1, !0, !2),
-    (1, 2, 0),
-    (1, !2, !0),
-    (!1, 2, !0),
-    (!1, !2, 0),
-    (2, 0, 1),
-    (2, !0, !1),
-    (!2, 0, !1),
-    (!2, !0, 1),
-    (2, 1, !0),
-    (2, !1, 0),
-    (!2, 1, 0),
-    (!2, !1, !0),
-];
+const fn enumerate_transforms(parity: bool) -> [Transform; 24] {
+    const PERMUTATIONS: [(Transform, bool); 6] = [
+        ((0, 1, 2), false),
+        ((0, 2, 1), true),
+        ((1, 0, 2), true),
+        ((1, 2, 0), false),
+        ((2, 0, 1), false),
+        ((2, 1, 0), true),
+    ];
 
-const MIRROR_TRANSFORMS: [Transform; 24] = [
-    (!0, 1, 2),
-    (!0, !1, !2),
-    (!!0, 1, !2),
-    (!!0, !1, 2),
-    (!0, 2, !1),
-    (!0, !2, 1),
-    (!!0, 2, 1),
-    (!!0, !2, !1),
-    (!1, 0, !2),
-    (!1, !0, 2),
-    (!!1, 0, 2),
-    (!!1, !0, !2),
-    (!1, 2, 0),
-    (!1, !2, !0),
-    (!!1, 2, !0),
-    (!!1, !2, 0),
-    (!2, 0, 1),
-    (!2, !0, !1),
-    (!!2, 0, !1),
-    (!!2, !0, 1),
-    (!2, 1, !0),
-    (!2, !1, 0),
-    (!!2, 1, 0),
-    (!!2, !1, !0),
-];
+    let mut ret = [(0, 0, 0); 24];
+    let mut index = 0;
+
+    let mut i = 0;
+    while i < 48 {
+        let mut p = PERMUTATIONS[i / 8].1;
+        p ^= (i / 4) % 2 == 1;
+        p ^= (i / 2) % 2 == 1;
+        p ^= i % 2 == 1;
+
+        if p == parity {
+            let perm = PERMUTATIONS[i / 8].0;
+
+            ret[index] = (
+                if (i / 4) % 2 == 1 { !perm.0 } else { perm.0 },
+                if (i / 2) % 2 == 1 { !perm.1 } else { perm.1 },
+                if i % 2 == 1 { !perm.2 } else { perm.2 },
+            );
+            index += 1;
+        }
+
+        i += 1;
+    }
+
+    ret
+}
+
+const TRANSFORMS: [Transform; 24] = enumerate_transforms(false);
+const MIRROR_TRANSFORMS: [Transform; 24] = enumerate_transforms(true);
 
 fn get_index(dims: (usize, usize, usize), idx: usize) -> usize {
     if idx == 0 || idx == !0 {
