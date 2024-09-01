@@ -1,4 +1,4 @@
-use std::ops::{Index, IndexMut};
+use std::ops::{Index, IndexMut, Mul, Not};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CubicGrid<T> {
@@ -37,7 +37,7 @@ impl<T> CubicGrid<T> {
             get_index(self.dims, transform.2),
         );
 
-        let inv = inverse(transform);
+        let inv = !transform;
         let mut buf = vec![];
         for i in 0..new_dims.0 {
             for j in 0..new_dims.1 {
@@ -152,58 +152,64 @@ fn get_index_offset(pos: (usize, usize, usize), dims: (usize, usize, usize), idx
     }
 }
 
-fn inverse(transform: Transform) -> Transform {
-    let mut ret = Transform(0, 0, 0);
+impl Not for Transform {
+    type Output = Transform;
 
-    if transform.0 == 0 {
-        ret.0 = 0;
-    } else if transform.0 == !0 {
-        ret.0 = !0;
-    } else if transform.0 == 1 {
-        ret.1 = 0;
-    } else if transform.0 == !1 {
-        ret.1 = !0;
-    } else if transform.0 == 2 {
-        ret.2 = 0;
-    } else if transform.0 == !2 {
-        ret.2 = !0;
-    } else {
-        panic!("Invalid index: {}", transform.0);
+    fn not(self) -> Self::Output {
+        let mut ret = Transform(0, 0, 0);
+
+        let mut apply = |val, i| {
+            if val == 0 {
+                ret.0 = i;
+            } else if val == !0 {
+                ret.0 = !i;
+            } else if val == 1 {
+                ret.1 = i;
+            } else if val == !1 {
+                ret.1 = !i;
+            } else if val == 2 {
+                ret.2 = i;
+            } else if val == !2 {
+                ret.2 = !i;
+            } else {
+                panic!("Invalid index: {}", val);
+            }
+        };
+
+        apply(self.0, 0);
+        apply(self.1, 1);
+        apply(self.2, 2);
+
+        ret
     }
+}
 
-    if transform.1 == 0 {
-        ret.0 = 1;
-    } else if transform.1 == !0 {
-        ret.0 = !1;
-    } else if transform.1 == 1 {
-        ret.1 = 1;
-    } else if transform.1 == !1 {
-        ret.1 = !1;
-    } else if transform.1 == 2 {
-        ret.2 = 1;
-    } else if transform.1 == !2 {
-        ret.2 = !1;
-    } else {
-        panic!("Invalid index: {}", transform.1);
+impl Mul<Transform> for Transform {
+    // Composition of transformations
+    // (f * g)(x) = f(g(x))
+    type Output = Transform;
+
+    fn mul(self, rhs: Transform) -> Self::Output {
+        let get = |i| {
+            if i == 0 {
+                rhs.0
+            } else if i == !0 {
+                !rhs.0
+            } else if i == 1 {
+                rhs.1
+            } else if i == !1 {
+                !rhs.1
+            } else if i == 2 {
+                rhs.2
+            } else if i == !2 {
+                !rhs.2
+            } else {
+                panic!("Invalid index: {}", i);
+            }
+        };
+
+        Transform(get(self.0), get(self.1), get(self.2))
     }
-
-    if transform.2 == 0 {
-        ret.0 = 2;
-    } else if transform.2 == !0 {
-        ret.0 = !2;
-    } else if transform.2 == 1 {
-        ret.1 = 2;
-    } else if transform.2 == !1 {
-        ret.1 = !2;
-    } else if transform.2 == 2 {
-        ret.2 = 2;
-    } else if transform.2 == !2 {
-        ret.2 = !2;
-    } else {
-        panic!("Invalid index: {}", transform.2);
-    }
-
-    ret
 }
 
 pub type Shape = CubicGrid<bool>;
@@ -326,6 +332,45 @@ mod tests {
                         assert_eq!(transformed[(i, j, k)], (i, j, k) != (2, 2, 0));
                     }
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn test_transform_composition() {
+        let all_transforms = TRANSFORMS
+            .iter()
+            .chain(MIRROR_TRANSFORMS.iter())
+            .copied()
+            .collect::<Vec<_>>();
+
+        let asymmetry_shape = crate::utils::tests::shape_from_string(
+            ".##
+             ##.
+             .#.",
+        );
+
+        for i in 0..48 {
+            {
+                let f = all_transforms[i];
+                let g = !f;
+
+                let actual = asymmetry_shape.apply_transform(f).apply_transform(g);
+                assert_eq!(actual, asymmetry_shape);
+
+                let actual = asymmetry_shape.apply_transform(g).apply_transform(f);
+                assert_eq!(actual, asymmetry_shape);
+            }
+
+            for j in 0..48 {
+                let f = all_transforms[i];
+                let g = all_transforms[j];
+                let fg = f * g;
+
+                let expected = asymmetry_shape.apply_transform(g).apply_transform(f);
+                let actual = asymmetry_shape.apply_transform(fg);
+
+                assert_eq!(actual, expected);
             }
         }
     }
