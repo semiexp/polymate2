@@ -2,12 +2,12 @@ use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
-use crate::shape::Shape as InternalShape;
-use crate::solver::Answers as InternalAnswers;
+use crate::shape::Shape;
+use crate::solver::Answers;
 
-#[wasm_bindgen]
-pub struct Answers {
-    answers: InternalAnswers,
+#[wasm_bindgen(js_name = Answers)]
+pub struct JsAnswers {
+    answers: Answers,
 }
 
 #[derive(Tsify, Serialize, Deserialize)]
@@ -17,8 +17,8 @@ pub struct JsAnswer {
     data: Vec<(i32, i32)>,
 }
 
-#[wasm_bindgen]
-impl Answers {
+#[wasm_bindgen(js_class = Answers)]
+impl JsAnswers {
     pub fn len(&self) -> usize {
         self.answers.len()
     }
@@ -47,7 +47,7 @@ pub struct Problem {
     board: Vec<Vec<Vec<i32>>>,
 }
 
-fn make_shape(data: Vec<Vec<Vec<i32>>>) -> InternalShape {
+fn make_shape(data: Vec<Vec<Vec<i32>>>) -> Shape {
     let dims = (data.len(), data[0].len(), data[0][0].len());
     let mut shape_data = vec![];
     for layer in data {
@@ -59,11 +59,11 @@ fn make_shape(data: Vec<Vec<Vec<i32>>>) -> InternalShape {
             }
         }
     }
-    InternalShape::new(shape_data, dims)
+    Shape::new(shape_data, dims)
 }
 
 #[wasm_bindgen]
-pub fn solve(problem: Problem) -> Answers {
+pub fn solve(problem: Problem) -> JsAnswers {
     let pieces = problem
         .pieces
         .iter()
@@ -77,5 +77,5 @@ pub fn solve(problem: Problem) -> Answers {
         identify_mirrored_answers: true,
     };
     let answers = crate::solver::solve(&pieces, &piece_count, &board, config);
-    Answers { answers }
+    JsAnswers { answers }
 }
