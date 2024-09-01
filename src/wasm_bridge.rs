@@ -2,17 +2,18 @@ use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
-use crate::shape::Answer as InternalAnswer;
 use crate::shape::Shape as InternalShape;
+use crate::solver::Answers as InternalAnswers;
 
 #[wasm_bindgen]
 pub struct Answers {
-    answers: Vec<InternalAnswer>,
+    answers: InternalAnswers,
 }
 
 #[derive(Tsify, Serialize, Deserialize)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
-pub struct Answer {
+#[serde(rename = "Answer")]
+pub struct JsAnswer {
     data: Vec<(i32, i32)>,
 }
 
@@ -22,8 +23,8 @@ impl Answers {
         self.answers.len()
     }
 
-    pub fn get(&self, index: usize) -> Answer {
-        let answer = &self.answers[index];
+    pub fn get(&self, index: usize) -> JsAnswer {
+        let answer = self.answers.get(index);
         let data = answer
             .data
             .iter()
@@ -32,7 +33,7 @@ impl Answers {
                 None => (-1, -1),
             })
             .collect();
-        Answer { data }
+        JsAnswer { data }
     }
 }
 
