@@ -79,19 +79,20 @@ impl<T> IndexMut<(usize, usize, usize)> for CubicGrid<T> {
     }
 }
 
-pub(crate) type Transform = (usize, usize, usize);
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Transform(usize, usize, usize);
 
 const fn enumerate_transforms(parity: bool) -> [Transform; 24] {
     const PERMUTATIONS: [(Transform, bool); 6] = [
-        ((0, 1, 2), false),
-        ((0, 2, 1), true),
-        ((1, 0, 2), true),
-        ((1, 2, 0), false),
-        ((2, 0, 1), false),
-        ((2, 1, 0), true),
+        (Transform(0, 1, 2), false),
+        (Transform(0, 2, 1), true),
+        (Transform(1, 0, 2), true),
+        (Transform(1, 2, 0), false),
+        (Transform(2, 0, 1), false),
+        (Transform(2, 1, 0), true),
     ];
 
-    let mut ret = [(0, 0, 0); 24];
+    let mut ret = [Transform(0, 0, 0); 24];
     let mut index = 0;
 
     let mut i = 0;
@@ -104,7 +105,7 @@ const fn enumerate_transforms(parity: bool) -> [Transform; 24] {
         if p == parity {
             let perm = PERMUTATIONS[i / 8].0;
 
-            ret[index] = (
+            ret[index] = Transform(
                 if (i / 4) % 2 == 1 { !perm.0 } else { perm.0 },
                 if (i / 2) % 2 == 1 { !perm.1 } else { perm.1 },
                 if i % 2 == 1 { !perm.2 } else { perm.2 },
@@ -152,7 +153,7 @@ fn get_index_offset(pos: (usize, usize, usize), dims: (usize, usize, usize), idx
 }
 
 fn inverse(transform: Transform) -> Transform {
-    let mut ret = (0, 0, 0);
+    let mut ret = Transform(0, 0, 0);
 
     if transform.0 == 0 {
         ret.0 = 0;
@@ -219,7 +220,7 @@ impl Shape {
     }
 
     pub fn mirror(&self) -> Shape {
-        self.apply_transform((!0, 1, 2))
+        self.apply_transform(Transform(!0, 1, 2))
     }
 
     pub(crate) fn compute_symmetry(&self) -> Vec<Transform> {
@@ -316,7 +317,7 @@ mod tests {
             let mut shape = Shape::new(vec![true; 120], (3, 4, 5));
             shape[(0, 1, 2)] = false;
 
-            let transformed = shape.apply_transform((!1, !2, 0));
+            let transformed = shape.apply_transform(Transform(!1, !2, 0));
             assert_eq!(transformed.dims, (4, 5, 3));
 
             for i in 0..4 {
