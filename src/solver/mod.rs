@@ -1,11 +1,20 @@
+mod fast;
 mod naive;
 
 use crate::shape::{dedup_shapes, Answer, Shape};
 
 #[derive(Clone, Copy)]
+pub enum SolverKind {
+    Auto,
+    Naive,
+    Fast,
+}
+
+#[derive(Clone, Copy)]
 pub struct Config {
     pub identify_transformed_answers: bool,
     pub identify_mirrored_answers: bool,
+    pub solver: SolverKind,
 }
 
 struct DeduplicatedProblem {
@@ -86,8 +95,15 @@ pub fn solve(pieces: &[Shape], piece_count: &[u32], board: &Shape, config: Confi
         board: board.clone(),
     };
 
-    // TODO: add more solvers
-    let raw_answers = Box::new(naive::solve(&problem, config));
+    let raw_answers: Box<dyn RawAnswers>;
+    match config.solver {
+        SolverKind::Auto | SolverKind::Naive => {
+            raw_answers = Box::new(naive::solve(&problem, config));
+        }
+        SolverKind::Fast => {
+            raw_answers = Box::new(fast::solve(&problem, config));
+        }
+    }
 
     Answers {
         raw_answers,
@@ -115,15 +131,18 @@ mod tests {
              .#.",
         ]);
 
-        let board = Shape::new(vec![true; 60], (1, 5, 3));
+        for solver in [SolverKind::Naive, SolverKind::Fast] {
+            let board = Shape::new(vec![true; 60], (1, 5, 3));
 
-        let config = Config {
-            identify_transformed_answers: false,
-            identify_mirrored_answers: false,
-        };
+            let config = Config {
+                identify_transformed_answers: false,
+                identify_mirrored_answers: false,
+                solver,
+            };
 
-        let answers = solve(&pentominoes, &[1; 3], &board, config);
-        assert_eq!(answers.len(), 4);
+            let answers = solve(&pentominoes, &[1; 3], &board, config);
+            assert_eq!(answers.len(), 4);
+        }
     }
 
     #[test]
@@ -143,18 +162,21 @@ mod tests {
              #.#.",
         );
 
-        let config = Config {
-            identify_transformed_answers: false,
-            identify_mirrored_answers: false,
-        };
+        for solver in [SolverKind::Naive, SolverKind::Fast] {
+            let config = Config {
+                identify_transformed_answers: false,
+                identify_mirrored_answers: false,
+                solver,
+            };
 
-        let answers = solve(&shapes, &[1; 2], &board, config);
-        assert_eq!(answers.len(), 1);
+            let answers = solve(&shapes, &[1; 2], &board, config);
+            assert_eq!(answers.len(), 1);
 
-        let answer = answers.get(0);
-        assert_eq!(answer[(0, 0, 0)], None);
-        assert_eq!(answer[(0, 0, 2)], Some((0, 0)));
-        assert_eq!(answer[(0, 1, 0)], Some((1, 0)));
+            let answer = answers.get(0);
+            assert_eq!(answer[(0, 0, 0)], None);
+            assert_eq!(answer[(0, 0, 2)], Some((0, 0)));
+            assert_eq!(answer[(0, 1, 0)], Some((1, 0)));
+        }
     }
 
     #[test]
@@ -171,19 +193,22 @@ mod tests {
              ..##",
         );
 
-        let config = Config {
-            identify_transformed_answers: false,
-            identify_mirrored_answers: false,
-        };
+        for solver in [SolverKind::Naive, SolverKind::Fast] {
+            let config = Config {
+                identify_transformed_answers: false,
+                identify_mirrored_answers: false,
+                solver,
+            };
 
-        let answers = solve(&shapes, &[2], &board, config);
-        assert_eq!(answers.len(), 1);
+            let answers = solve(&shapes, &[2], &board, config);
+            assert_eq!(answers.len(), 1);
 
-        let answer = answers.get(0);
-        assert_eq!(answer[(0, 0, 0)], Some((0, 0)));
-        assert_eq!(answer[(0, 0, 3)], Some((0, 1)));
-        assert_eq!(answer[(0, 1, 1)], Some((0, 0)));
-        assert_eq!(answer[(0, 1, 2)], Some((0, 1)));
+            let answer = answers.get(0);
+            assert_eq!(answer[(0, 0, 0)], Some((0, 0)));
+            assert_eq!(answer[(0, 0, 3)], Some((0, 1)));
+            assert_eq!(answer[(0, 1, 1)], Some((0, 0)));
+            assert_eq!(answer[(0, 1, 2)], Some((0, 1)));
+        }
     }
 
     #[test]
@@ -204,19 +229,22 @@ mod tests {
              ..##",
         );
 
-        let config = Config {
-            identify_transformed_answers: false,
-            identify_mirrored_answers: false,
-        };
+        for solver in [SolverKind::Naive, SolverKind::Fast] {
+            let config = Config {
+                identify_transformed_answers: false,
+                identify_mirrored_answers: false,
+                solver,
+            };
 
-        let answers = solve(&shapes, &[1, 1], &board, config);
-        assert_eq!(answers.len(), 1);
+            let answers = solve(&shapes, &[1, 1], &board, config);
+            assert_eq!(answers.len(), 1);
 
-        let answer = answers.get(0);
-        assert_eq!(answer[(0, 0, 0)], Some((0, 0)));
-        assert_eq!(answer[(0, 0, 3)], Some((1, 0)));
-        assert_eq!(answer[(0, 1, 1)], Some((0, 0)));
-        assert_eq!(answer[(0, 1, 2)], Some((1, 0)));
+            let answer = answers.get(0);
+            assert_eq!(answer[(0, 0, 0)], Some((0, 0)));
+            assert_eq!(answer[(0, 0, 3)], Some((1, 0)));
+            assert_eq!(answer[(0, 1, 1)], Some((0, 0)));
+            assert_eq!(answer[(0, 1, 2)], Some((1, 0)));
+        }
     }
 
     #[test]
@@ -268,20 +296,22 @@ mod tests {
 
         let board = Shape::new(vec![true; 60], (1, 10, 6));
 
-        {
+        for solver in [SolverKind::Naive, SolverKind::Fast] {
             let config = Config {
                 identify_transformed_answers: false,
                 identify_mirrored_answers: false,
+                solver,
             };
 
             let answers = solve(&pentominoes, &[1; 12], &board, config);
             assert_eq!(answers.len(), 2339 * 4);
         }
 
-        {
+        for solver in [SolverKind::Naive, SolverKind::Fast] {
             let config = Config {
                 identify_transformed_answers: true,
                 identify_mirrored_answers: false,
+                solver,
             };
 
             let answers = solve(&pentominoes, &[1; 12], &board, config);
@@ -317,20 +347,22 @@ mod tests {
 
         let board = Shape::new(vec![true; 27], (3, 3, 3));
 
-        {
+        for solver in [SolverKind::Naive, SolverKind::Fast] {
             let config = Config {
                 identify_transformed_answers: false,
                 identify_mirrored_answers: false,
+                solver,
             };
 
             let answers = solve(&pieces, &[1; 7], &board, config);
             assert_eq!(answers.len(), 240 * 2 * 24);
         }
 
-        {
+        for solver in [SolverKind::Naive, SolverKind::Fast] {
             let config = Config {
                 identify_transformed_answers: true,
                 identify_mirrored_answers: false,
+                solver,
             };
 
             let answers = solve(&pieces, &[1; 7], &board, config);
@@ -341,6 +373,7 @@ mod tests {
             let config = Config {
                 identify_transformed_answers: true,
                 identify_mirrored_answers: true,
+                solver: SolverKind::Naive,
             };
 
             let answers = solve(&pieces, &[1; 7], &board, config);

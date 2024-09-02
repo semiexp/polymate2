@@ -3,7 +3,7 @@ use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
 use crate::shape::Shape;
-use crate::solver::Answers;
+use crate::solver::{Answers, SolverKind};
 
 #[wasm_bindgen(js_name = Answers)]
 pub struct JsAnswers {
@@ -75,6 +75,7 @@ pub fn solve(problem: Problem) -> JsAnswers {
     let config = crate::solver::Config {
         identify_transformed_answers: true,
         identify_mirrored_answers: true,
+        solver: SolverKind::Naive,
     };
     let answers = crate::solver::solve(&pieces, &piece_count, &board, config);
     JsAnswers { answers }

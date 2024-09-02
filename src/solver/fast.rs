@@ -1,0 +1,474 @@
+use super::{Config, DeduplicatedProblem, RawAnswers};
+use crate::shape::{transform_bbox, Answer, CubicGrid, Shape, Transform, TRANSFORMS};
+use crate::utils;
+
+struct PieceTransforms {
+    variants: Vec<Shape>,
+    origins: Vec<(usize, usize, usize)>,
+    variant_transforms: Vec<Vec<Transform>>,
+}
+
+impl PieceTransforms {
+    fn new(shape: &Shape) -> PieceTransforms {
+        let mut dup_variants = vec![];
+        for &transform in &TRANSFORMS {
+            dup_variants.push((shape.apply_transform(transform), transform));
+        }
+        dup_variants.sort();
+
+        let mut variants = vec![];
+        let mut variant_transforms = vec![];
+
+        let mut i = 0;
+        while i < dup_variants.len() {
+            let mut j = i;
+            while j < dup_variants.len() && dup_variants[j].0 == dup_variants[i].0 {
+                j += 1;
+            }
+
+            variants.push(dup_variants[i].0.clone());
+            variant_transforms.push(dup_variants[i..j].iter().map(|&(_, t)| t).collect());
+            i = j;
+        }
+
+        let origins = variants.iter().map(|v| v.origin()).collect::<Vec<_>>();
+
+        PieceTransforms {
+            variants,
+            origins,
+            variant_transforms,
+        }
+    }
+
+    fn num_variants(&self) -> usize {
+        self.variants.len()
+    }
+
+    fn transform(&self, variant_id: usize, transform: Transform) -> usize {
+        let t = transform * self.variant_transforms[variant_id][0];
+        for i in 0..self.variant_transforms.len() {
+            if self.variant_transforms[i].iter().any(|&x| x == t) {
+                return i;
+            }
+        }
+        panic!();
+    }
+
+    fn transform_with_origin(
+        &self,
+        variant_id: usize,
+        origin: (usize, usize, usize),
+        board_dims: (usize, usize, usize),
+        transform: Transform,
+    ) -> (usize, (usize, usize, usize)) {
+        let variant_after_transform = self.transform(variant_id, transform);
+
+        let top = (
+            origin.0 - self.origins[variant_id].0,
+            origin.1 - self.origins[variant_id].1,
+            origin.2 - self.origins[variant_id].2,
+        );
+        let top_after_transform =
+            transform_bbox(top, self.variants[variant_id].dims(), board_dims, transform);
+
+        let new_origin = (
+            top_after_transform.0 + self.origins[variant_after_transform].0,
+            top_after_transform.1 + self.origins[variant_after_transform].1,
+            top_after_transform.2 + self.origins[variant_after_transform].2,
+        );
+
+        (variant_after_transform, new_origin)
+    }
+}
+
+struct CompiledProblem {
+    board_dims: (usize, usize, usize),
+    num_board_blocks: usize,
+    board_symmetry: Vec<Transform>, // `Transform`s which preserve the board
+    piece_count: Vec<u32>,
+    max_piece_count: u32,
+    cumulative_piece_count: Vec<u32>,
+    positions: Vec<(usize, usize, usize)>, // contiguous position -> (x, y, z)
+
+    placements: Vec<Vec<Vec<Vec<usize>>>>, // [piece][position][variant][index]
+
+    // [piece][position][variant][transform] -> (position, variant)
+    // where `transform` is the index in `board_symmetry`
+    placement_transforms: Vec<Vec<Vec<Vec<(usize, usize)>>>>,
+
+    config: Config,
+}
+
+impl CompiledProblem {
+    fn reconstruct_answer(&self, answer: &[(usize, usize)]) -> Answer {
+        let volume = self.board_dims.0 * self.board_dims.1 * self.board_dims.2;
+        let mut ret = Answer::new(vec![None; volume], self.board_dims);
+
+        for i in 0..self.piece_count.len() {
+            for j in 0..self.piece_count[i] {
+                let (pos, variant) = answer[self.cumulative_piece_count[i] as usize + j as usize];
+                if pos == !0 {
+                    continue;
+                }
+
+                let variant = &self.placements[i][pos][variant];
+                for &p in variant {
+                    ret[self.positions[p]] = Some((i, j as usize));
+                }
+            }
+        }
+
+        ret
+    }
+
+    fn is_normal_form(&self, answer: &[(usize, usize)]) -> bool {
+        if self.config.identify_transformed_answers {
+            let mut buf = vec![(!0, !0); self.max_piece_count as usize];
+            'outer: for tr in 0..self.board_symmetry.len() {
+                for i in 0..self.piece_count.len() {
+                    let ofs = self.cumulative_piece_count[i] as usize;
+                    for j in 0..(self.piece_count[i] as usize) {
+                        if answer[ofs + j] == (!0, !0) {
+                            buf[j] = (!0, !0);
+                        } else {
+                            buf[j] = self.placement_transforms[i][answer[ofs + j].0]
+                                [answer[ofs + j].1][tr];
+                        }
+                    }
+
+                    buf.sort();
+
+                    for j in 0..(self.piece_count[i] as usize) {
+                        match answer[ofs + j].cmp(&buf[j]) {
+                            std::cmp::Ordering::Less => continue 'outer,
+                            std::cmp::Ordering::Greater => return false,
+                            std::cmp::Ordering::Equal => {}
+                        }
+                    }
+                }
+            }
+
+            // TODO: support mirrored transforms
+        }
+
+        true
+    }
+}
+
+fn compile(
+    pieces: &[Shape],
+    piece_count: &[u32],
+    board: &Shape,
+    config: Config,
+) -> CompiledProblem {
+    assert_eq!(pieces.len(), piece_count.len());
+
+    let board_symmetry = board.compute_symmetry();
+    let positions = utils::position_iterator(board).collect::<Vec<_>>();
+
+    let mut pos_to_idx = CubicGrid::new(
+        vec![None; board.dims().0 * board.dims().1 * board.dims().2],
+        board.dims(),
+    );
+    for (idx, p) in positions.iter().enumerate() {
+        pos_to_idx[*p] = Some(idx);
+    }
+
+    let mut placements: Vec<Vec<Vec<Vec<usize>>>> = vec![];
+    let mut placement_transforms: Vec<Vec<Vec<Vec<(usize, usize)>>>> = vec![];
+
+    for p in 0..pieces.len() {
+        let transforms = PieceTransforms::new(&pieces[p]);
+
+        let mut all_placements = vec![]; // [position][i] -> variant_id
+
+        for i in 0..positions.len() {
+            let mut placements = vec![];
+
+            let pos = positions[i];
+
+            'outer: for j in 0..transforms.num_variants() {
+                let origin = transforms.origins[j];
+                let shape_dims = transforms.variants[j].dims();
+
+                if !(pos.0 >= origin.0 && pos.1 >= origin.1 && pos.2 >= origin.2) {
+                    continue;
+                }
+                if !(pos.0 + shape_dims.0 - origin.0 <= board.dims().0
+                    && pos.1 + shape_dims.1 - origin.1 <= board.dims().1
+                    && pos.2 + shape_dims.2 - origin.2 <= board.dims().2)
+                {
+                    continue;
+                }
+
+                for (pi, pj, pk) in utils::position_iterator(&transforms.variants[j]) {
+                    if !board[(
+                        pos.0 + pi - origin.0,
+                        pos.1 + pj - origin.1,
+                        pos.2 + pk - origin.2,
+                    )] {
+                        continue 'outer;
+                    }
+                }
+
+                placements.push(j);
+            }
+
+            all_placements.push(placements);
+        }
+
+        placements.push(
+            (0..positions.len())
+                .map(|i| {
+                    (0..all_placements[i].len())
+                        .map(|j| {
+                            let pos = positions[i];
+                            let variant = all_placements[i][j];
+                            let orig = transforms.origins[variant];
+                            utils::position_iterator(&transforms.variants[variant])
+                                .map(|p| {
+                                    let p = (
+                                        p.0 + pos.0 - orig.0,
+                                        p.1 + pos.1 - orig.1,
+                                        p.2 + pos.2 - orig.2,
+                                    );
+                                    let idx = pos_to_idx[p].unwrap();
+                                    idx
+                                })
+                                .collect()
+                        })
+                        .collect()
+                })
+                .collect(),
+        );
+
+        placement_transforms.push(
+            (0..positions.len())
+                .map(|i| {
+                    (0..all_placements[i].len())
+                        .map(|j| {
+                            let variant = all_placements[i][j];
+
+                            (0..board_symmetry.len())
+                                .map(|k| {
+                                    let (new_variant, new_origin) = transforms
+                                        .transform_with_origin(
+                                            variant,
+                                            positions[i],
+                                            board.dims(),
+                                            board_symmetry[k],
+                                        );
+
+                                    let i2 = pos_to_idx[new_origin].unwrap();
+                                    let j2 =
+                                        all_placements[i2].binary_search(&new_variant).unwrap();
+
+                                    (i2, j2)
+                                })
+                                .collect()
+                        })
+                        .collect()
+                })
+                .collect(),
+        );
+    }
+
+    let mut cumulative_piece_count = vec![0; piece_count.len() + 1];
+    {
+        let mut c = 0;
+        for i in 0..piece_count.len() {
+            c += piece_count[i];
+            cumulative_piece_count[i + 1] = c;
+        }
+    }
+
+    CompiledProblem {
+        board_dims: board.dims(),
+        num_board_blocks: positions.len(),
+        board_symmetry,
+        piece_count: piece_count.to_vec(),
+        max_piece_count: *piece_count.iter().max().unwrap(),
+        cumulative_piece_count,
+        positions,
+        placements,
+        placement_transforms,
+        config,
+    }
+}
+
+fn search(
+    piece_count: &mut [u32],
+    board: &mut [bool],
+    current_answer: &mut [(usize, usize)],
+    answers: &mut Vec<Vec<(usize, usize)>>,
+    pos: usize,
+    problem: &CompiledProblem,
+) {
+    let mut pos = pos;
+    while pos < problem.num_board_blocks && board[pos] {
+        pos += 1;
+    }
+
+    if pos == problem.num_board_blocks {
+        let mut answer = current_answer.to_vec();
+        for i in 0..problem.piece_count.len() {
+            let start = problem.cumulative_piece_count[i] as usize;
+            let end = problem.cumulative_piece_count[i + 1] as usize;
+            answer[start..end].reverse();
+        }
+
+        if !problem.is_normal_form(&answer) {
+            return;
+        }
+
+        answers.push(answer);
+        return;
+    }
+
+    for i in 0..piece_count.len() {
+        if piece_count[i] == 0 {
+            continue;
+        }
+
+        'outer: for (j, variant) in problem.placements[i][pos].iter().enumerate() {
+            for p in variant {
+                if board[*p] {
+                    continue 'outer;
+                }
+            }
+
+            piece_count[i] -= 1;
+            current_answer[(piece_count[i] + problem.cumulative_piece_count[i]) as usize] =
+                (pos, j);
+            for p in variant {
+                board[*p] = true;
+            }
+
+            search(
+                piece_count,
+                board,
+                current_answer,
+                answers,
+                pos + 1,
+                problem,
+            );
+
+            for p in variant {
+                board[*p] = false;
+            }
+            current_answer[(piece_count[i] + problem.cumulative_piece_count[i]) as usize] =
+                (!0, !0);
+            piece_count[i] += 1;
+        }
+    }
+}
+
+struct RawAnswersImpl {
+    answers_base: Vec<Vec<(usize, usize)>>,
+    compiled_problem: CompiledProblem,
+}
+
+impl RawAnswers for RawAnswersImpl {
+    fn len(&self) -> usize {
+        self.answers_base.len()
+    }
+
+    fn get(&self, index: usize) -> Answer {
+        self.compiled_problem
+            .reconstruct_answer(&self.answers_base[index])
+    }
+}
+
+pub fn solve(problem: &DeduplicatedProblem, config: Config) -> impl RawAnswers {
+    if config.identify_mirrored_answers {
+        todo!();
+    }
+
+    let compiled_problem = compile(
+        &problem.pieces,
+        &problem.piece_count,
+        &problem.board,
+        config,
+    );
+
+    let mut piece_count = compiled_problem.piece_count.clone();
+
+    let mut board = vec![false; compiled_problem.num_board_blocks];
+    let mut current_answer =
+        vec![(!0, !0); *compiled_problem.cumulative_piece_count.last().unwrap() as usize];
+    let mut answers = vec![];
+    search(
+        &mut piece_count,
+        &mut board,
+        &mut current_answer,
+        &mut answers,
+        0,
+        &compiled_problem,
+    );
+
+    RawAnswersImpl {
+        answers_base: answers,
+        compiled_problem,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_piece_transforms() {
+        let shapes = crate::utils::tests::shapes_from_strings(&[
+            // (monocube)
+            "#",
+            // o
+            "##
+             ##",
+            // P
+            "###
+             ##.",
+            // U
+            "###
+             #.#",
+            // L
+            "####
+             #...",
+            // I
+            "#####",
+            // V
+            "###
+             #..
+             #..",
+            // T
+            "###
+             .#.
+             .#.",
+            // Z
+            ".##
+             .#.
+             ##.",
+            // F
+            ".##
+             ##.
+             .#.",
+            // X
+            ".#.
+             ###
+             .#.",
+        ]);
+        let expected_num_variants = [1, 3, 24, 12, 24, 3, 12, 12, 12, 24, 3];
+
+        for (shape, n) in shapes.into_iter().zip(expected_num_variants.into_iter()) {
+            let piece = PieceTransforms::new(&shape);
+            assert_eq!(piece.num_variants(), n);
+
+            for v in 0..piece.num_variants() {
+                for &transform in &TRANSFORMS {
+                    let expected = &piece.variants[v].apply_transform(transform);
+                    let actual = &piece.variants[piece.transform(v, transform)];
+                    assert_eq!(actual, expected);
+                }
+            }
+        }
+    }
+}

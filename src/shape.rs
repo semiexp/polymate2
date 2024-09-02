@@ -79,7 +79,7 @@ impl<T> IndexMut<(usize, usize, usize)> for CubicGrid<T> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Transform(usize, usize, usize);
 
 const fn enumerate_transforms(parity: bool) -> [Transform; 24] {
@@ -119,8 +119,34 @@ const fn enumerate_transforms(parity: bool) -> [Transform; 24] {
     ret
 }
 
-const TRANSFORMS: [Transform; 24] = enumerate_transforms(false);
-const MIRROR_TRANSFORMS: [Transform; 24] = enumerate_transforms(true);
+pub(crate) const TRANSFORMS: [Transform; 24] = enumerate_transforms(false);
+pub(crate) const MIRROR_TRANSFORMS: [Transform; 24] = enumerate_transforms(true);
+
+pub(crate) fn transform_bbox(
+    top: (usize, usize, usize),
+    vol: (usize, usize, usize),
+    board_dims: (usize, usize, usize),
+    transform: Transform,
+) -> (usize, usize, usize) {
+    let get = |idx| {
+        if idx == 0 {
+            top.0
+        } else if idx == !0 {
+            board_dims.0 - top.0 - vol.0
+        } else if idx == 1 {
+            top.1
+        } else if idx == !1 {
+            board_dims.1 - top.1 - vol.1
+        } else if idx == 2 {
+            top.2
+        } else if idx == !2 {
+            board_dims.2 - top.2 - vol.2
+        } else {
+            panic!("Invalid index: {}", idx);
+        }
+    };
+    (get(transform.0), get(transform.1), get(transform.2))
+}
 
 fn get_index(dims: (usize, usize, usize), idx: usize) -> usize {
     if idx == 0 || idx == !0 {
@@ -332,6 +358,25 @@ mod tests {
                         assert_eq!(transformed[(i, j, k)], (i, j, k) != (2, 2, 0));
                     }
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn test_transform_bbox() {
+        for i in 0..60 {
+            let a = i / 20;
+            let b = i / 5 % 4;
+            let c = i % 5;
+
+            let mut shape = Shape::new(vec![false; 60], (3, 4, 5));
+            shape[(a, b, c)] = true;
+
+            for transform in &TRANSFORMS {
+                let transformed = shape.apply_transform(*transform);
+
+                let (a2, b2, c2) = transform_bbox((a, b, c), (1, 1, 1), (3, 4, 5), *transform);
+                assert_eq!(transformed[(a2, b2, c2)], true);
             }
         }
     }
