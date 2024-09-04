@@ -218,6 +218,14 @@ impl CompiledProblem {
     }
 }
 
+fn iter_map<A, F, U>(it: A, f: F) -> Vec<U>
+where
+    A: Iterator,
+    F: Fn(A::Item) -> U,
+{
+    it.map(f).collect()
+}
+
 fn compile(
     pieces: &[Shape],
     piece_count: &[u32],
@@ -280,60 +288,45 @@ fn compile(
             all_placements.push(placements);
         }
 
-        placements.push(
-            (0..positions.len())
-                .map(|i| {
-                    (0..all_placements[i].len())
-                        .map(|j| {
-                            let pos = positions[i];
-                            let variant = all_placements[i][j];
-                            let orig = transforms.origins[variant];
-                            utils::position_iterator(&transforms.variants[variant])
-                                .map(|p| {
-                                    let p = (
-                                        p.0 + pos.0 - orig.0,
-                                        p.1 + pos.1 - orig.1,
-                                        p.2 + pos.2 - orig.2,
-                                    );
-                                    let idx = pos_to_idx[p].unwrap();
-                                    idx
-                                })
-                                .collect()
-                        })
-                        .collect()
+        placements.push(iter_map(0..positions.len(), |i| {
+            iter_map(0..all_placements[i].len(), |j| {
+                let pos = positions[i];
+                let variant = all_placements[i][j];
+                let orig = transforms.origins[variant];
+                iter_map(
+                    utils::position_iterator(&transforms.variants[variant]),
+                    |p| {
+                        let p = (
+                            p.0 + pos.0 - orig.0,
+                            p.1 + pos.1 - orig.1,
+                            p.2 + pos.2 - orig.2,
+                        );
+                        let idx = pos_to_idx[p].unwrap();
+                        idx
+                    },
+                )
+            })
+        }));
+
+        placement_transforms.push(iter_map(0..positions.len(), |i| {
+            iter_map(0..all_placements[i].len(), |j| {
+                let variant = all_placements[i][j];
+
+                iter_map(0..board_symmetry.len(), |k| {
+                    let (new_variant, new_origin) = transforms.transform_with_origin(
+                        variant,
+                        positions[i],
+                        board.dims(),
+                        board_symmetry[k],
+                    );
+
+                    let i2 = pos_to_idx[new_origin].unwrap();
+                    let j2 = all_placements[i2].binary_search(&new_variant).unwrap();
+
+                    (i2, j2)
                 })
-                .collect(),
-        );
-
-        placement_transforms.push(
-            (0..positions.len())
-                .map(|i| {
-                    (0..all_placements[i].len())
-                        .map(|j| {
-                            let variant = all_placements[i][j];
-
-                            (0..board_symmetry.len())
-                                .map(|k| {
-                                    let (new_variant, new_origin) = transforms
-                                        .transform_with_origin(
-                                            variant,
-                                            positions[i],
-                                            board.dims(),
-                                            board_symmetry[k],
-                                        );
-
-                                    let i2 = pos_to_idx[new_origin].unwrap();
-                                    let j2 =
-                                        all_placements[i2].binary_search(&new_variant).unwrap();
-
-                                    (i2, j2)
-                                })
-                                .collect()
-                        })
-                        .collect()
-                })
-                .collect(),
-        );
+            })
+        }));
     }
 
     let mut cumulative_piece_count = vec![0; piece_count.len() + 1];
