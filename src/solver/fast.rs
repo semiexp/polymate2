@@ -465,14 +465,78 @@ pub fn solve(problem: &DeduplicatedProblem, config: Config) -> impl RawAnswers {
         vec![(!0, !0); *compiled_problem.cumulative_piece_count.last().unwrap() as usize];
     let mut answers = vec![];
 
-    search(
-        &mut piece_count,
-        &mut board,
-        &mut current_answer,
-        &mut answers,
-        0,
-        &compiled_problem,
-    );
+    let mut use_pre_pruning = false;
+    if config.identify_transformed_answers {
+        let mut num_all_blocks = 0;
+        for i in 0..piece_count.len() {
+            num_all_blocks +=
+                piece_count[i] as usize * utils::position_iterator(&problem.pieces[i]).count();
+        }
+
+        if piece_count[0] == 1 && num_all_blocks == compiled_problem.num_board_blocks {
+            use_pre_pruning = true;
+        }
+    }
+
+    if use_pre_pruning {
+        // pre-pruning
+        let piece = 0;
+        for pos in 0..compiled_problem.num_board_blocks {
+            for i in 0..compiled_problem.placements[piece][pos].len() {
+                let mut is_pruned = false;
+                for j in 0..compiled_problem.board_symmetry.len() {
+                    if (pos, i) > compiled_problem.placement_transforms[piece][pos][i][j] {
+                        is_pruned = true;
+                        break;
+                    }
+                }
+                if is_pruned {
+                    continue;
+                }
+
+                let mask = compiled_problem.placement_bitsets.get_bitset(pos, piece, i);
+                for k in 0..compiled_problem.placement_bitsets.size_per_variant {
+                    if (mask[k] & board[k]) != 0 {
+                        panic!();
+                    }
+                }
+
+                piece_count[piece] -= 1;
+                current_answer[(piece_count[piece]
+                    + compiled_problem.cumulative_piece_count[piece] as u32)
+                    as usize] = (pos, i);
+                for k in 0..compiled_problem.placement_bitsets.size_per_variant {
+                    board[k] ^= mask[k];
+                }
+
+                search(
+                    &mut piece_count,
+                    &mut board,
+                    &mut current_answer,
+                    &mut answers,
+                    0,
+                    &compiled_problem,
+                );
+
+                for k in 0..compiled_problem.placement_bitsets.size_per_variant {
+                    board[k] ^= mask[k];
+                }
+                current_answer[(piece_count[piece]
+                    + compiled_problem.cumulative_piece_count[piece] as u32)
+                    as usize] = (!0, !0);
+                piece_count[piece] += 1;
+            }
+        }
+    } else {
+        search(
+            &mut piece_count,
+            &mut board,
+            &mut current_answer,
+            &mut answers,
+            0,
+            &compiled_problem,
+        );
+    }
 
     RawAnswersImpl {
         answers_base: answers,
