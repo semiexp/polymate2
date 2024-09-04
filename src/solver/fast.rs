@@ -81,6 +81,68 @@ impl PieceTransforms {
     }
 }
 
+struct PlacementBitSets {
+    data: Vec<u64>,
+    size_per_variant: usize,
+    num_pieces: usize,
+    num_variants: Vec<usize>,
+    offset_by_position_and_piece: Vec<usize>,
+}
+
+impl PlacementBitSets {
+    fn new(base: &Vec<Vec<Vec<Vec<usize>>>>, num_board_blocks: usize) -> PlacementBitSets {
+        let num_pieces = base.len();
+        for i in 0..num_pieces {
+            assert_eq!(base[i].len(), num_board_blocks);
+        }
+
+        let size_per_variant = (num_board_blocks + 63) / 64;
+
+        let mut data = vec![];
+        let mut num_variants = vec![];
+
+        for i in 0..num_board_blocks {
+            for j in 0..num_pieces {
+                num_variants.push(base[j][i].len());
+                for k in 0..base[j][i].len() {
+                    let ofs = data.len();
+                    for _ in 0..size_per_variant {
+                        data.push(0);
+                    }
+
+                    for &idx in &base[j][i][k] {
+                        data[ofs + idx / 64] |= 1 << (idx % 64);
+                    }
+                }
+            }
+        }
+
+        let mut offset_by_position_and_piece = vec![0; num_board_blocks * num_pieces];
+        for i in 1..num_board_blocks * num_pieces {
+            offset_by_position_and_piece[i] =
+                offset_by_position_and_piece[i - 1] + num_variants[i - 1];
+        }
+
+        PlacementBitSets {
+            data,
+            size_per_variant,
+            num_pieces,
+            num_variants,
+            offset_by_position_and_piece,
+        }
+    }
+
+    fn num_variants(&self, position: usize, piece_id: usize) -> usize {
+        self.num_variants[position * self.num_pieces + piece_id]
+    }
+
+    fn get_bitset(&self, position: usize, piece_id: usize, variant_id: usize) -> &[u64] {
+        let offset = self.offset_by_position_and_piece[position * self.num_pieces + piece_id]
+            + variant_id * self.size_per_variant;
+        &self.data[offset..(offset + self.size_per_variant)]
+    }
+}
+
 struct CompiledProblem {
     board_dims: (usize, usize, usize),
     num_board_blocks: usize,
@@ -91,6 +153,7 @@ struct CompiledProblem {
     positions: Vec<(usize, usize, usize)>, // contiguous position -> (x, y, z)
 
     placements: Vec<Vec<Vec<Vec<usize>>>>, // [piece][position][variant][index]
+    placement_bitsets: PlacementBitSets,
 
     // [piece][position][variant][transform] -> (position, variant)
     // where `transform` is the index in `board_symmetry`
@@ -282,6 +345,8 @@ fn compile(
         }
     }
 
+    let placement_bitsets = PlacementBitSets::new(&placements, positions.len());
+
     CompiledProblem {
         board_dims: board.dims(),
         num_board_blocks: positions.len(),
@@ -291,6 +356,7 @@ fn compile(
         cumulative_piece_count,
         positions,
         placements,
+        placement_bitsets,
         placement_transforms,
         config,
     }
@@ -298,14 +364,14 @@ fn compile(
 
 fn search(
     piece_count: &mut [u32],
-    board: &mut [bool],
+    board: &mut [u64],
     current_answer: &mut [(usize, usize)],
     answers: &mut Vec<Vec<(usize, usize)>>,
     pos: usize,
     problem: &CompiledProblem,
 ) {
     let mut pos = pos;
-    while pos < problem.num_board_blocks && board[pos] {
+    while pos < problem.num_board_blocks && (board[pos / 64] & (1 << (pos % 64))) != 0 {
         pos += 1;
     }
 
@@ -330,9 +396,10 @@ fn search(
             continue;
         }
 
-        'outer: for (j, variant) in problem.placements[i][pos].iter().enumerate() {
-            for p in variant {
-                if board[*p] {
+        'outer: for j in 0..problem.placement_bitsets.num_variants(pos, i) {
+            let mask = problem.placement_bitsets.get_bitset(pos, i, j);
+            for k in 0..problem.placement_bitsets.size_per_variant {
+                if (mask[k] & board[k]) != 0 {
                     continue 'outer;
                 }
             }
@@ -340,8 +407,8 @@ fn search(
             piece_count[i] -= 1;
             current_answer[(piece_count[i] + problem.cumulative_piece_count[i]) as usize] =
                 (pos, j);
-            for p in variant {
-                board[*p] = true;
+            for k in 0..problem.placement_bitsets.size_per_variant {
+                board[k] ^= mask[k];
             }
 
             search(
@@ -353,8 +420,8 @@ fn search(
                 problem,
             );
 
-            for p in variant {
-                board[*p] = false;
+            for k in 0..problem.placement_bitsets.size_per_variant {
+                board[k] ^= mask[k];
             }
             current_answer[(piece_count[i] + problem.cumulative_piece_count[i]) as usize] =
                 (!0, !0);
@@ -393,10 +460,11 @@ pub fn solve(problem: &DeduplicatedProblem, config: Config) -> impl RawAnswers {
 
     let mut piece_count = compiled_problem.piece_count.clone();
 
-    let mut board = vec![false; compiled_problem.num_board_blocks];
+    let mut board = vec![0; compiled_problem.placement_bitsets.size_per_variant];
     let mut current_answer =
         vec![(!0, !0); *compiled_problem.cumulative_piece_count.last().unwrap() as usize];
     let mut answers = vec![];
+
     search(
         &mut piece_count,
         &mut board,
