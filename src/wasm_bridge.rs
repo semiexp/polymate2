@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
-use crate::shape::Shape;
+use crate::shape::{Coord, Shape};
 use crate::solver::{Answers, SolverKind};
 
 #[wasm_bindgen(js_name = Answers)]
@@ -59,7 +59,10 @@ fn make_shape(data: Vec<Vec<Vec<i32>>>) -> Shape {
             }
         }
     }
-    Shape::new(shape_data, dims)
+    Shape::new(
+        shape_data,
+        Coord(dims.0 as i32, dims.1 as i32, dims.2 as i32),
+    )
 }
 
 #[wasm_bindgen]

@@ -1,10 +1,10 @@
 use super::{Config, DeduplicatedProblem, RawAnswers};
-use crate::shape::{transform_bbox, Answer, CubicGrid, Shape, Transform, TRANSFORMS};
+use crate::shape::{transform_bbox, Answer, Coord, CubicGrid, Shape, Transform, TRANSFORMS};
 use crate::utils;
 
 struct PieceTransforms {
     variants: Vec<Shape>,
-    origins: Vec<(usize, usize, usize)>,
+    origins: Vec<Coord>,
     variant_transforms: Vec<Vec<Transform>>,
 }
 
@@ -57,25 +57,17 @@ impl PieceTransforms {
     fn transform_with_origin(
         &self,
         variant_id: usize,
-        origin: (usize, usize, usize),
-        board_dims: (usize, usize, usize),
+        origin: Coord,
+        board_dims: Coord,
         transform: Transform,
-    ) -> (usize, (usize, usize, usize)) {
+    ) -> (usize, Coord) {
         let variant_after_transform = self.transform(variant_id, transform);
 
-        let top = (
-            origin.0 - self.origins[variant_id].0,
-            origin.1 - self.origins[variant_id].1,
-            origin.2 - self.origins[variant_id].2,
-        );
+        let top = origin - self.origins[variant_id];
         let top_after_transform =
             transform_bbox(top, self.variants[variant_id].dims(), board_dims, transform);
 
-        let new_origin = (
-            top_after_transform.0 + self.origins[variant_after_transform].0,
-            top_after_transform.1 + self.origins[variant_after_transform].1,
-            top_after_transform.2 + self.origins[variant_after_transform].2,
-        );
+        let new_origin = top_after_transform + self.origins[variant_after_transform];
 
         (variant_after_transform, new_origin)
     }
@@ -144,13 +136,13 @@ impl PlacementBitSets {
 }
 
 struct CompiledProblem {
-    board_dims: (usize, usize, usize),
+    board_dims: Coord,
     num_board_blocks: usize,
     board_symmetry: Vec<Transform>, // `Transform`s which preserve the board
     piece_count: Vec<u32>,
     max_piece_count: u32,
     cumulative_piece_count: Vec<u32>,
-    positions: Vec<(usize, usize, usize)>, // contiguous position -> (x, y, z)
+    coords: Vec<Coord>, // contiguous position -> (x, y, z)
 
     placements: Vec<Vec<Vec<Vec<usize>>>>, // [piece][position][variant][index]
     placement_bitsets: PlacementBitSets,
@@ -164,8 +156,10 @@ struct CompiledProblem {
 
 impl CompiledProblem {
     fn reconstruct_answer(&self, answer: &[(usize, usize)]) -> Answer {
-        let volume = self.board_dims.0 * self.board_dims.1 * self.board_dims.2;
-        let mut ret = Answer::new(vec![None; volume], self.board_dims);
+        let mut ret = Answer::new(
+            vec![None; self.board_dims.volume() as usize],
+            self.board_dims,
+        );
 
         for i in 0..self.piece_count.len() {
             for j in 0..self.piece_count[i] {
@@ -176,7 +170,7 @@ impl CompiledProblem {
 
                 let variant = &self.placements[i][pos][variant];
                 for &p in variant {
-                    ret[self.positions[p]] = Some((i, j as usize));
+                    ret[self.coords[p]] = Some((i, j as usize));
                 }
             }
         }
@@ -235,13 +229,10 @@ fn compile(
     assert_eq!(pieces.len(), piece_count.len());
 
     let board_symmetry = board.compute_symmetry();
-    let positions = utils::position_iterator(board).collect::<Vec<_>>();
+    let coords = utils::coord_iterator(board).collect::<Vec<_>>();
 
-    let mut pos_to_idx = CubicGrid::new(
-        vec![None; board.dims().0 * board.dims().1 * board.dims().2],
-        board.dims(),
-    );
-    for (idx, p) in positions.iter().enumerate() {
+    let mut pos_to_idx = CubicGrid::new(vec![None; board.dims().volume() as usize], board.dims());
+    for (idx, p) in coords.iter().enumerate() {
         pos_to_idx[*p] = Some(idx);
     }
 
@@ -253,31 +244,24 @@ fn compile(
 
         let mut all_placements = vec![]; // [position][i] -> variant_id
 
-        for i in 0..positions.len() {
+        for i in 0..coords.len() {
             let mut placements = vec![];
 
-            let pos = positions[i];
+            let bc = coords[i];
 
             'outer: for j in 0..transforms.num_variants() {
                 let origin = transforms.origins[j];
                 let shape_dims = transforms.variants[j].dims();
 
-                if !(pos.0 >= origin.0 && pos.1 >= origin.1 && pos.2 >= origin.2) {
+                if !(bc.ge(origin)) {
                     continue;
                 }
-                if !(pos.0 + shape_dims.0 - origin.0 <= board.dims().0
-                    && pos.1 + shape_dims.1 - origin.1 <= board.dims().1
-                    && pos.2 + shape_dims.2 - origin.2 <= board.dims().2)
-                {
+                if !(board.dims().ge(bc + shape_dims - origin)) {
                     continue;
                 }
 
-                for (pi, pj, pk) in utils::position_iterator(&transforms.variants[j]) {
-                    if !board[(
-                        pos.0 + pi - origin.0,
-                        pos.1 + pj - origin.1,
-                        pos.2 + pk - origin.2,
-                    )] {
+                for pc in utils::coord_iterator(&transforms.variants[j]) {
+                    if !board[bc + pc - origin] {
                         continue 'outer;
                     }
                 }
@@ -288,34 +272,27 @@ fn compile(
             all_placements.push(placements);
         }
 
-        placements.push(iter_map(0..positions.len(), |i| {
+        placements.push(iter_map(0..coords.len(), |i| {
             iter_map(0..all_placements[i].len(), |j| {
-                let pos = positions[i];
+                let coord = coords[i];
                 let variant = all_placements[i][j];
                 let orig = transforms.origins[variant];
-                iter_map(
-                    utils::position_iterator(&transforms.variants[variant]),
-                    |p| {
-                        let p = (
-                            p.0 + pos.0 - orig.0,
-                            p.1 + pos.1 - orig.1,
-                            p.2 + pos.2 - orig.2,
-                        );
-                        let idx = pos_to_idx[p].unwrap();
-                        idx
-                    },
-                )
+                iter_map(utils::coord_iterator(&transforms.variants[variant]), |p| {
+                    let p = p + coord - orig;
+                    let idx = pos_to_idx[p].unwrap();
+                    idx
+                })
             })
         }));
 
-        placement_transforms.push(iter_map(0..positions.len(), |i| {
+        placement_transforms.push(iter_map(0..coords.len(), |i| {
             iter_map(0..all_placements[i].len(), |j| {
                 let variant = all_placements[i][j];
 
                 iter_map(0..board_symmetry.len(), |k| {
                     let (new_variant, new_origin) = transforms.transform_with_origin(
                         variant,
-                        positions[i],
+                        coords[i],
                         board.dims(),
                         board_symmetry[k],
                     );
@@ -338,16 +315,16 @@ fn compile(
         }
     }
 
-    let placement_bitsets = PlacementBitSets::new(&placements, positions.len());
+    let placement_bitsets = PlacementBitSets::new(&placements, coords.len());
 
     CompiledProblem {
         board_dims: board.dims(),
-        num_board_blocks: positions.len(),
+        num_board_blocks: coords.len(),
         board_symmetry,
         piece_count: piece_count.to_vec(),
         max_piece_count: *piece_count.iter().max().unwrap(),
         cumulative_piece_count,
-        positions,
+        coords,
         placements,
         placement_bitsets,
         placement_transforms,
@@ -463,7 +440,7 @@ pub fn solve(problem: &DeduplicatedProblem, config: Config) -> impl RawAnswers {
         let mut num_all_blocks = 0;
         for i in 0..piece_count.len() {
             num_all_blocks +=
-                piece_count[i] as usize * utils::position_iterator(&problem.pieces[i]).count();
+                piece_count[i] as usize * utils::coord_iterator(&problem.pieces[i]).count();
         }
 
         if piece_count[0] == 1 && num_all_blocks == compiled_problem.num_board_blocks {

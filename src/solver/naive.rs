@@ -1,16 +1,16 @@
 use std::collections::HashMap;
 
 use super::{Config, DeduplicatedProblem, RawAnswers};
-use crate::shape::{Answer, CubicGrid, Shape, Transform};
+use crate::shape::{Answer, Coord, CubicGrid, Shape, Transform};
 use crate::utils;
 
 struct CompiledProblem {
-    board_dims: (usize, usize, usize),
+    board_dims: Coord,
     board_size: usize,
     board_symmetry: Vec<Transform>,
     board_mirror_symmetry: Vec<Transform>,
     piece_count: Vec<u32>,
-    positions: Vec<(usize, usize, usize)>, // contiguous position -> (x, y, z)
+    coords: Vec<Coord>,                    // contiguous position -> (x, y, z)
     placements: Vec<Vec<Vec<Vec<usize>>>>, // [position][piece][variant][index]
     mirrored_piece_ids: Vec<Vec<Option<(usize, usize)>>>,
     config: Config,
@@ -20,8 +20,10 @@ impl CompiledProblem {
     fn reconstruct_answer(&self, answer: &[(usize, usize)]) -> Answer {
         assert_eq!(answer.len(), self.board_size);
 
-        let volume = self.board_dims.0 * self.board_dims.1 * self.board_dims.2;
-        let mut ret = Answer::new(vec![None; volume], self.board_dims);
+        let mut ret = Answer::new(
+            vec![None; self.board_dims.volume() as usize],
+            self.board_dims,
+        );
         let mut used_pieces = vec![0; self.piece_count.len()];
 
         for i in 0..self.board_size {
@@ -32,7 +34,7 @@ impl CompiledProblem {
 
             let variant = &self.placements[i][piece][variant];
             for &p in variant {
-                ret[self.positions[p]] = Some((piece, used_pieces[piece]));
+                ret[self.coords[p]] = Some((piece, used_pieces[piece]));
             }
             used_pieces[piece] += 1;
         }
@@ -151,13 +153,10 @@ fn compile(
 
     let board_dims = board.dims();
 
-    let positions = utils::position_iterator(board).collect::<Vec<_>>();
-    let board_size = positions.len();
-    let mut pos_id = CubicGrid::new(
-        vec![!0; board_dims.0 * board_dims.1 * board_dims.2],
-        board_dims,
-    );
-    for (idx, p) in positions.iter().enumerate() {
+    let coords = utils::coord_iterator(board).collect::<Vec<_>>();
+    let board_size = coords.len();
+    let mut pos_id = CubicGrid::new(vec![!0; board_dims.volume() as usize], board_dims);
+    for (idx, p) in coords.iter().enumerate() {
         pos_id[*p] = idx;
     }
 
@@ -167,8 +166,8 @@ fn compile(
         .collect::<Vec<_>>();
 
     let mut placements = vec![];
-    for &(i, j, k) in &positions {
-        let mut placements_pos = vec![];
+    for &bc in &coords {
+        let mut placements_pos: Vec<Vec<Vec<usize>>> = vec![];
         for pv in &piece_variants {
             let mut placements_piece = vec![];
 
@@ -176,29 +175,22 @@ fn compile(
                 let origin = variant.origin();
                 let shape_dims = variant.dims();
 
-                if !(i >= origin.0 && j >= origin.1 && k >= origin.2) {
+                if !(bc.ge(origin)) {
                     continue;
                 }
-                if !(i + shape_dims.0 - origin.0 <= board_dims.0
-                    && j + shape_dims.1 - origin.1 <= board_dims.1
-                    && k + shape_dims.2 - origin.2 <= board_dims.2)
-                {
+                if !(board_dims.ge(bc + shape_dims - origin)) {
                     continue;
                 }
 
-                for (pi, pj, pk) in utils::position_iterator(variant) {
-                    if !board[(i + pi - origin.0, j + pj - origin.1, k + pk - origin.2)] {
+                for pc in utils::coord_iterator(variant) {
+                    if !board[bc + pc - origin] {
                         continue 'outer;
                     }
                 }
 
                 let mut placement = vec![];
-                for (pi, pj, pk) in utils::position_iterator(variant) {
-                    let ti = i + pi - origin.0;
-                    let tj = j + pj - origin.1;
-                    let tk = k + pk - origin.2;
-
-                    let v = pos_id[(ti, tj, tk)];
+                for pc in utils::coord_iterator(variant) {
+                    let v = pos_id[bc + pc - origin];
                     assert_ne!(v, !0);
                     placement.push(v);
                 }
@@ -215,7 +207,7 @@ fn compile(
         board_symmetry: board.compute_symmetry(),
         board_mirror_symmetry: board.compute_mirroring_symmetry(),
         piece_count: piece_count.to_vec(),
-        positions,
+        coords,
         placements,
         mirrored_piece_ids,
         config,

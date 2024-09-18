@@ -114,6 +114,7 @@ pub fn solve(pieces: &[Shape], piece_count: &[u32], board: &Shape, config: Confi
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shape::Coord;
     use crate::utils::tests::{shape_from_string, shapes_from_strings};
 
     #[test]
@@ -132,7 +133,7 @@ mod tests {
         ]);
 
         for solver in [SolverKind::Naive, SolverKind::Fast] {
-            let board = Shape::new(vec![true; 60], (1, 5, 3));
+            let board = Shape::new(vec![true; 15], Coord(1, 5, 3));
 
             let config = Config {
                 identify_transformed_answers: false,
@@ -294,7 +295,7 @@ mod tests {
              .#.",
         ]);
 
-        let board = Shape::new(vec![true; 60], (1, 10, 6));
+        let board = Shape::new(vec![true; 60], Coord(1, 10, 6));
 
         for solver in [SolverKind::Naive, SolverKind::Fast] {
             let config = Config {
@@ -345,7 +346,7 @@ mod tests {
              .. #.",
         ]);
 
-        let board = Shape::new(vec![true; 27], (3, 3, 3));
+        let board = Shape::new(vec![true; 27], Coord(3, 3, 3));
 
         for solver in [SolverKind::Naive, SolverKind::Fast] {
             let config = Config {

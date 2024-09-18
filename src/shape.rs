@@ -1,37 +1,98 @@
-use std::ops::{Index, IndexMut, Mul, Not};
+use std::ops::{Add, Index, IndexMut, Mul, Not, Sub};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Coord(pub i32, pub i32, pub i32);
+
+impl Coord {
+    pub fn ge(&self, other: Coord) -> bool {
+        self.0 >= other.0 && self.1 >= other.1 && self.2 >= other.2
+    }
+
+    fn cmp_lex(&self, other: Coord) -> std::cmp::Ordering {
+        self.0
+            .cmp(&other.0)
+            .then(self.1.cmp(&other.1))
+            .then(self.2.cmp(&other.2))
+    }
+
+    pub(crate) fn volume(&self) -> i32 {
+        self.0 * self.1 * self.2
+    }
+}
+
+impl Add for Coord {
+    type Output = Coord;
+
+    fn add(self, rhs: Coord) -> Self::Output {
+        Coord(self.0 + rhs.0, self.1 + rhs.1, self.2 + rhs.2)
+    }
+}
+
+impl Sub for Coord {
+    type Output = Coord;
+
+    fn sub(self, rhs: Coord) -> Self::Output {
+        Coord(self.0 - rhs.0, self.1 - rhs.1, self.2 - rhs.2)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CubicGrid<T> {
-    dims: (usize, usize, usize),
+    dims: Coord,
     pub(crate) data: Vec<T>,
 }
 
+impl<T: PartialOrd> PartialOrd for CubicGrid<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        let c = self.dims.cmp_lex(other.dims);
+
+        if c != std::cmp::Ordering::Equal {
+            return Some(c);
+        }
+
+        self.data.partial_cmp(&other.data)
+    }
+}
+
+impl<T: Ord> Ord for CubicGrid<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.dims
+            .cmp_lex(other.dims)
+            .then_with(|| self.data.cmp(&other.data))
+    }
+}
+
 impl<T> CubicGrid<T> {
-    pub fn new(data: Vec<T>, dims: (usize, usize, usize)) -> CubicGrid<T> {
+    pub fn new(data: Vec<T>, dims: Coord) -> CubicGrid<T> {
+        assert_eq!(data.len() as i32, dims.volume());
         Self { data, dims }
     }
 
-    pub fn dims(&self) -> (usize, usize, usize) {
+    pub fn dims(&self) -> Coord {
         self.dims
     }
 
     pub fn from_array_2d(data: Vec<Vec<T>>) -> CubicGrid<T> {
-        let dims = (1, data.len(), data[0].len());
+        let dims = Coord(1, data.len() as i32, data[0].len() as i32);
         let data = data.into_iter().flatten().collect();
-        Self { data, dims }
+        CubicGrid::new(data, dims)
     }
 
     pub fn from_array_3d(data: Vec<Vec<Vec<T>>>) -> CubicGrid<T> {
-        let dims = (data.len(), data[0].len(), data[0][0].len());
+        let dims = Coord(
+            data.len() as i32,
+            data[0].len() as i32,
+            data[0][0].len() as i32,
+        );
         let data = data.into_iter().flatten().flatten().collect();
-        Self { data, dims }
+        CubicGrid::new(data, dims)
     }
 
     pub(crate) fn apply_transform(&self, transform: Transform) -> CubicGrid<T>
     where
         T: Clone,
     {
-        let new_dims = (
+        let new_dims = Coord(
             get_index(self.dims, transform.0),
             get_index(self.dims, transform.1),
             get_index(self.dims, transform.2),
@@ -42,8 +103,8 @@ impl<T> CubicGrid<T> {
         for i in 0..new_dims.0 {
             for j in 0..new_dims.1 {
                 for k in 0..new_dims.2 {
-                    let pos = (i, j, k);
-                    let orig_pos = (
+                    let pos = Coord(i, j, k);
+                    let orig_pos = Coord(
                         get_index_offset(pos, new_dims, inv.0),
                         get_index_offset(pos, new_dims, inv.1),
                         get_index_offset(pos, new_dims, inv.2),
@@ -53,7 +114,10 @@ impl<T> CubicGrid<T> {
             }
         }
 
-        CubicGrid::new(buf, new_dims)
+        CubicGrid {
+            data: buf,
+            dims: new_dims,
+        }
     }
 }
 
@@ -61,21 +125,45 @@ impl<T> Index<(usize, usize, usize)> for CubicGrid<T> {
     type Output = T;
 
     fn index(&self, index: (usize, usize, usize)) -> &Self::Output {
-        assert!(index.0 < self.dims.0 && index.1 < self.dims.1 && index.2 < self.dims.2);
+        assert!(
+            (index.0 as i32) < self.dims.0
+                && (index.1 as i32) < self.dims.1
+                && (index.2 as i32) < self.dims.2
+        );
         let (x, y, z) = index;
-        let (_wx, wy, wz) = self.dims;
-        let index = x * wy * wz + y * wz + z;
-        &self.data[index]
+        let Coord(_wx, wy, wz) = self.dims;
+        let index = x as i32 * wy * wz + y as i32 * wz + z as i32;
+        &self.data[index as usize]
+    }
+}
+
+impl<T> Index<Coord> for CubicGrid<T> {
+    type Output = T;
+
+    fn index(&self, index: Coord) -> &Self::Output {
+        assert!(index.0 >= 0 && index.1 >= 0 && index.2 >= 0);
+        self.index((index.0 as usize, index.1 as usize, index.2 as usize))
     }
 }
 
 impl<T> IndexMut<(usize, usize, usize)> for CubicGrid<T> {
     fn index_mut(&mut self, index: (usize, usize, usize)) -> &mut Self::Output {
-        assert!(index.0 < self.dims.0 && index.1 < self.dims.1 && index.2 < self.dims.2);
+        assert!(
+            (index.0 as i32) < self.dims.0
+                && (index.1 as i32) < self.dims.1
+                && (index.2 as i32) < self.dims.2
+        );
         let (x, y, z) = index;
-        let (_wx, wy, wz) = self.dims;
-        let index = x * wy * wz + y * wz + z;
-        &mut self.data[index]
+        let Coord(_wx, wy, wz) = self.dims;
+        let index = x as i32 * wy * wz + y as i32 * wz + z as i32;
+        &mut self.data[index as usize]
+    }
+}
+
+impl<T> IndexMut<Coord> for CubicGrid<T> {
+    fn index_mut(&mut self, index: Coord) -> &mut Self::Output {
+        assert!(index.0 >= 0 && index.1 >= 0 && index.2 >= 0);
+        self.index_mut((index.0 as usize, index.1 as usize, index.2 as usize))
     }
 }
 
@@ -123,11 +211,11 @@ pub(crate) const TRANSFORMS: [Transform; 24] = enumerate_transforms(false);
 pub(crate) const MIRROR_TRANSFORMS: [Transform; 24] = enumerate_transforms(true);
 
 pub(crate) fn transform_bbox(
-    top: (usize, usize, usize),
-    vol: (usize, usize, usize),
-    board_dims: (usize, usize, usize),
+    top: Coord,
+    vol: Coord,
+    board_dims: Coord,
     transform: Transform,
-) -> (usize, usize, usize) {
+) -> Coord {
     let get = |idx| {
         if idx == 0 {
             top.0
@@ -145,10 +233,10 @@ pub(crate) fn transform_bbox(
             panic!("Invalid index: {}", idx);
         }
     };
-    (get(transform.0), get(transform.1), get(transform.2))
+    Coord(get(transform.0), get(transform.1), get(transform.2))
 }
 
-fn get_index(dims: (usize, usize, usize), idx: usize) -> usize {
+fn get_index(dims: Coord, idx: usize) -> i32 {
     if idx == 0 || idx == !0 {
         dims.0
     } else if idx == 1 || idx == !1 {
@@ -160,7 +248,7 @@ fn get_index(dims: (usize, usize, usize), idx: usize) -> usize {
     }
 }
 
-fn get_index_offset(pos: (usize, usize, usize), dims: (usize, usize, usize), idx: usize) -> usize {
+fn get_index_offset(pos: Coord, dims: Coord, idx: usize) -> i32 {
     if idx == 0 {
         pos.0
     } else if idx == !0 {
@@ -277,13 +365,14 @@ impl Shape {
         ret
     }
 
-    pub fn origin(&self) -> (usize, usize, usize) {
+    pub fn origin(&self) -> Coord {
         for i in 0..self.data.len() {
             if self.data[i] {
+                let i = i as i32;
                 let z = i % self.dims.2;
                 let y = (i / self.dims.2) % self.dims.1;
                 let x = i / (self.dims.1 * self.dims.2);
-                return (x, y, z);
+                return Coord(x as i32, y as i32, z as i32);
             }
         }
 
@@ -329,28 +418,28 @@ mod tests {
     fn test_shape_constructor() {
         {
             let data = vec![true, false, true, false];
-            let dims = (2, 2, 1);
+            let dims = Coord(2, 2, 1);
             let shape = Shape::new(data.clone(), dims);
             assert_eq!(shape.data, data);
-            assert_eq!(shape.dims, dims);
+            assert_eq!(shape.dims, Coord(2, 2, 1));
         }
 
         {
             let shape =
                 Shape::from_array_3d(vec![vec![vec![true, false, true], vec![true, true, true]]]);
             assert_eq!(shape.data, vec![true, false, true, true, true, true]);
-            assert_eq!(shape.dims, (1, 2, 3));
+            assert_eq!(shape.dims, Coord(1, 2, 3));
         }
     }
 
     #[test]
     fn test_transform() {
         {
-            let mut shape = Shape::new(vec![true; 120], (3, 4, 5));
+            let mut shape = Shape::new(vec![true; 60], Coord(3, 4, 5));
             shape[(0, 1, 2)] = false;
 
             let transformed = shape.apply_transform(Transform(!1, !2, 0));
-            assert_eq!(transformed.dims, (4, 5, 3));
+            assert_eq!(transformed.dims, Coord(4, 5, 3));
 
             for i in 0..4 {
                 for j in 0..5 {
@@ -364,19 +453,19 @@ mod tests {
 
     #[test]
     fn test_transform_bbox() {
-        for i in 0..60 {
-            let a = i / 20;
-            let b = i / 5 % 4;
-            let c = i % 5;
+        for i in 0..60i32 {
+            let x = i / 20;
+            let y = i / 5 % 4;
+            let z = i % 5;
 
-            let mut shape = Shape::new(vec![false; 60], (3, 4, 5));
-            shape[(a, b, c)] = true;
+            let mut shape = Shape::new(vec![false; 60], Coord(3, 4, 5));
+            shape[Coord(x, y, z)] = true;
 
             for transform in &TRANSFORMS {
                 let transformed = shape.apply_transform(*transform);
 
-                let (a2, b2, c2) = transform_bbox((a, b, c), (1, 1, 1), (3, 4, 5), *transform);
-                assert_eq!(transformed[(a2, b2, c2)], true);
+                let c = transform_bbox(Coord(x, y, z), Coord(1, 1, 1), Coord(3, 4, 5), *transform);
+                assert_eq!(transformed[c], true);
             }
         }
     }

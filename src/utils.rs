@@ -1,14 +1,15 @@
-use crate::shape::Shape;
+use crate::shape::{Coord, Shape};
 
-pub fn position_iterator(shape: &Shape) -> impl Iterator<Item = (usize, usize, usize)> {
+pub fn coord_iterator(shape: &Shape) -> impl Iterator<Item = Coord> {
     let mut positions = vec![];
     let dims = shape.dims();
 
     for i in 0..dims.0 {
         for j in 0..dims.1 {
             for k in 0..dims.2 {
-                if shape[(i, j, k)] {
-                    positions.push((i, j, k));
+                let c = Coord(i, j, k);
+                if shape[c] {
+                    positions.push(c);
                 }
             }
         }
@@ -19,7 +20,7 @@ pub fn position_iterator(shape: &Shape) -> impl Iterator<Item = (usize, usize, u
 
 #[cfg(test)]
 pub mod tests {
-    use crate::shape::Shape;
+    use crate::shape::{Coord, Shape};
 
     pub fn shape_from_string(s: &str) -> Shape {
         let lines = s
@@ -34,7 +35,7 @@ pub mod tests {
 
         let mut ret = Shape::new(
             vec![false; width * height * num_layers],
-            (num_layers, height, width),
+            Coord(num_layers as i32, height as i32, width as i32),
         );
         for y in 0..height {
             for z in 0..num_layers {
