@@ -410,6 +410,146 @@ pub fn dedup_shapes(shapes: &[Shape]) -> Vec<Vec<usize>> {
 
 pub type Answer = CubicGrid<Option<(usize, usize)>>;
 
+pub fn shape_from_string(s: &str) -> Shape {
+    let lines = s
+        .trim()
+        .lines()
+        .map(|line| line.trim_start().split(" ").collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+
+    let num_layers = lines[0].len();
+    let height = lines.len();
+    let width = lines[0][0].len();
+
+    let mut ret = Shape::new(
+        vec![false; width * height * num_layers],
+        Coord(num_layers as i32, height as i32, width as i32),
+    );
+    for y in 0..height {
+        for z in 0..num_layers {
+            assert_eq!(lines[y][z].len(), width);
+            for (x, s) in lines[y][z].chars().enumerate() {
+                ret[(z, y, x)] = s == '#';
+            }
+        }
+    }
+
+    ret
+}
+
+pub fn get_shape_by_name(name: char) -> Shape {
+    let base_str = match name {
+        'm' => "#",
+        'd' => "##",
+        'a' => "###",
+        'b' => {
+            "##
+             #."
+        }
+        'i' => "####",
+        'o' => {
+            "##
+             ##"
+        }
+        'l' => {
+            "###
+             #.."
+        }
+        't' => {
+            "###
+             .#."
+        }
+        'n' => {
+            "##.
+             .##"
+        }
+        'x' => {
+            "#. ##
+             .. #."
+        }
+        'y' => {
+            ".. ##
+             #. #."
+        }
+        'z' => {
+            ".# ##
+             .. #."
+        }
+        'F' => {
+            ".##
+             ##.
+             .#."
+        }
+        'I' => "#####",
+        'L' => {
+            "####
+             #..."
+        }
+        'N' => {
+            ".###
+             ##.."
+        }
+        'P' => {
+            "###
+             ##."
+        }
+        'T' => {
+            "###
+             .#.
+             .#."
+        }
+        'U' => {
+            "###
+             #.#"
+        }
+        'V' => {
+            "###
+             #..
+             #.."
+        }
+        'W' => {
+            ".##
+             ##.
+             #.."
+        }
+        'X' => {
+            ".#.
+             ###
+             .#."
+        }
+        'Y' => {
+            "####
+             .#.."
+        }
+        'Z' => {
+            ".##
+             .#.
+             ##."
+        }
+        _ => panic!("Unknown shape name: {}", name),
+    };
+
+    shape_from_string(base_str)
+}
+
+pub fn get_shapes_by_names(names: &str) -> (Vec<Shape>, Vec<u32>) {
+    let mut shapes = vec![];
+    let mut counts = vec![];
+
+    for c in names.chars() {
+        let shape = get_shape_by_name(c);
+        let idx = shapes.iter().position(|s| *s == shape);
+        if let Some(idx) = idx {
+            counts[idx] += 1;
+        } else {
+            shapes.push(shape);
+            counts.push(1);
+        }
+    }
+
+    (shapes, counts)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -478,7 +618,7 @@ mod tests {
             .copied()
             .collect::<Vec<_>>();
 
-        let asymmetry_shape = crate::utils::tests::shape_from_string(
+        let asymmetry_shape = shape_from_string(
             ".##
              ##.
              .#.",
@@ -539,6 +679,35 @@ mod tests {
             let transforms = shape.enumerate_transforms();
 
             assert_eq!(transforms.len(), 24);
+        }
+    }
+
+    #[test]
+    fn test_shape_from_string() {
+        // 2D shape
+        {
+            let expected =
+                Shape::from_array_2d(vec![vec![true, true, true], vec![true, true, false]]);
+            let actual = shape_from_string(
+                "###
+                 ##.",
+            );
+
+            assert_eq!(actual, expected);
+        }
+
+        // 3D shape
+        {
+            let expected = Shape::from_array_3d(vec![
+                vec![vec![false, true], vec![false, false]],
+                vec![vec![true, true], vec![true, false]],
+            ]);
+            let actual = shape_from_string(
+                ".# ##
+                 .. #.",
+            );
+
+            assert_eq!(actual, expected);
         }
     }
 }

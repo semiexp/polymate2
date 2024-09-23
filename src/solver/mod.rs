@@ -114,23 +114,11 @@ pub fn solve(pieces: &[Shape], piece_count: &[u32], board: &Shape, config: Confi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shape::Coord;
-    use crate::utils::tests::{shape_from_string, shapes_from_strings};
+    use crate::shape::{get_shapes_by_names, shape_from_string, Coord};
 
     #[test]
     fn test_solve_pentomino_small() {
-        let pentominoes = shapes_from_strings(&[
-            // P
-            "###
-             ##.",
-            // U
-            "###
-             #.#",
-            // F
-            ".##
-             ##.
-             .#.",
-        ]);
+        let (shapes, counts) = get_shapes_by_names("PUF");
 
         for solver in [SolverKind::Naive, SolverKind::Fast] {
             let board = Shape::new(vec![true; 15], Coord(1, 5, 3));
@@ -141,21 +129,14 @@ mod tests {
                 solver,
             };
 
-            let answers = solve(&pentominoes, &[1; 3], &board, config);
+            let answers = solve(&shapes, &counts, &board, config);
             assert_eq!(answers.len(), 4);
         }
     }
 
     #[test]
     fn test_solve_irregular_shape() {
-        let shapes = shapes_from_strings(&[
-            // l
-            "###
-             #..",
-            // U
-            "###
-             #.#",
-        ]);
+        let (shapes, counts) = get_shapes_by_names("lU");
 
         let board = shape_from_string(
             ".###
@@ -170,7 +151,7 @@ mod tests {
                 solver,
             };
 
-            let answers = solve(&shapes, &[1; 2], &board, config);
+            let answers = solve(&shapes, &counts, &board, config);
             assert_eq!(answers.len(), 1);
 
             let answer = answers.get(0);
@@ -182,11 +163,7 @@ mod tests {
 
     #[test]
     fn test_solve_multiple_pieces() {
-        let shapes = shapes_from_strings(&[
-            // P
-            "###
-             ##.",
-        ]);
+        let (shapes, counts) = get_shapes_by_names("PP");
 
         let board = shape_from_string(
             "####
@@ -201,7 +178,7 @@ mod tests {
                 solver,
             };
 
-            let answers = solve(&shapes, &[2], &board, config);
+            let answers = solve(&shapes, &counts, &board, config);
             assert_eq!(answers.len(), 1);
 
             let answer = answers.get(0);
@@ -214,15 +191,19 @@ mod tests {
 
     #[test]
     fn test_solve_duplicated_pieces() {
-        let shapes = shapes_from_strings(&[
+        let shapes = [
             // P
-            "###
-             ##.",
+            shape_from_string(
+                "###
+                 ##.",
+            ),
             // P (duplicated)
-            "#.
-             ##
-             ##",
-        ]);
+            shape_from_string(
+                "#.
+                 ##
+                 ##",
+            ),
+        ];
 
         let board = shape_from_string(
             "####
@@ -251,49 +232,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_solve_pentomino() {
-        let pentominoes = shapes_from_strings(&[
-            // P
-            "###
-             ##.",
-            // U
-            "###
-             #.#",
-            // L
-            "####
-             #...",
-            // Y
-            "####
-             .#..",
-            // N
-            ".###
-             ##..",
-            // I
-            "#####",
-            // V
-            "###
-             #..
-             #..",
-            // W
-            ".##
-             ##.
-             #..",
-            // T
-            "###
-             .#.
-             .#.",
-            // Z
-            ".##
-             .#.
-             ##.",
-            // F
-            ".##
-             ##.
-             .#.",
-            // X
-            ".#.
-             ###
-             .#.",
-        ]);
+        let (pieces, counts) = get_shapes_by_names("FILNPTUVWXYZ");
 
         let board = Shape::new(vec![true; 60], Coord(1, 10, 6));
 
@@ -304,7 +243,7 @@ mod tests {
                 solver,
             };
 
-            let answers = solve(&pentominoes, &[1; 12], &board, config);
+            let answers = solve(&pieces, &counts, &board, config);
             assert_eq!(answers.len(), 2339 * 4);
         }
 
@@ -315,36 +254,14 @@ mod tests {
                 solver,
             };
 
-            let answers = solve(&pentominoes, &[1; 12], &board, config);
+            let answers = solve(&pieces, &counts, &board, config);
             assert_eq!(answers.len(), 2339);
         }
     }
 
     #[test]
     fn test_soma_cube() {
-        let pieces = shapes_from_strings(&[
-            // l
-            "###
-             #..",
-            // t
-            "###
-             .#.",
-            // n
-            "##.
-             .##",
-            // b
-            "##
-             #.",
-            // x
-            "#. ##
-             .. #.",
-            // y
-            ".. ##
-             #. #.",
-            // z
-            ".# ##
-             .. #.",
-        ]);
+        let (pieces, counts) = get_shapes_by_names("ltnbxyz");
 
         let board = Shape::new(vec![true; 27], Coord(3, 3, 3));
 
@@ -355,7 +272,7 @@ mod tests {
                 solver,
             };
 
-            let answers = solve(&pieces, &[1; 7], &board, config);
+            let answers = solve(&pieces, &counts, &board, config);
             assert_eq!(answers.len(), 240 * 2 * 24);
         }
 
@@ -366,7 +283,7 @@ mod tests {
                 solver,
             };
 
-            let answers = solve(&pieces, &[1; 7], &board, config);
+            let answers = solve(&pieces, &counts, &board, config);
             assert_eq!(answers.len(), 240 * 2);
         }
 
@@ -377,7 +294,7 @@ mod tests {
                 solver,
             };
 
-            let answers = solve(&pieces, &[1; 7], &board, config);
+            let answers = solve(&pieces, &counts, &board, config);
             assert_eq!(answers.len(), 240);
         }
     }

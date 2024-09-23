@@ -659,47 +659,11 @@ pub fn solve(problem: &DeduplicatedProblem, config: Config) -> impl RawAnswers {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shape::get_shapes_by_names;
 
     #[test]
     fn test_piece_transforms() {
-        let shapes = crate::utils::tests::shapes_from_strings(&[
-            // (monocube)
-            "#",
-            // o
-            "##
-             ##",
-            // P
-            "###
-             ##.",
-            // U
-            "###
-             #.#",
-            // L
-            "####
-             #...",
-            // I
-            "#####",
-            // V
-            "###
-             #..
-             #..",
-            // T
-            "###
-             .#.
-             .#.",
-            // Z
-            ".##
-             .#.
-             ##.",
-            // F
-            ".##
-             ##.
-             .#.",
-            // X
-            ".#.
-             ###
-             .#.",
-        ]);
+        let (shapes, _) = get_shapes_by_names("moPULIVTZFX");
         let expected_num_variants = [1, 3, 24, 12, 24, 3, 12, 12, 12, 24, 3];
 
         for (shape, n) in shapes.into_iter().zip(expected_num_variants.into_iter()) {
