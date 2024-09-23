@@ -370,11 +370,11 @@ mod tests {
             assert_eq!(answers.len(), 240 * 2);
         }
 
-        {
+        for solver in [SolverKind::Naive, SolverKind::Fast] {
             let config = Config {
                 identify_transformed_answers: true,
                 identify_mirrored_answers: true,
-                solver: SolverKind::Naive,
+                solver,
             };
 
             let answers = solve(&pieces, &[1; 7], &board, config);

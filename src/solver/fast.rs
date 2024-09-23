@@ -44,6 +44,15 @@ impl PieceTransforms {
         self.variants.len()
     }
 
+    fn find_variant(&self, piece: &Shape) -> Option<usize> {
+        for i in 0..self.variants.len() {
+            if &self.variants[i] == piece {
+                return Some(i);
+            }
+        }
+        None
+    }
+
     fn transform(&self, variant_id: usize, transform: Transform) -> usize {
         let t = transform * self.variant_transforms[variant_id][0];
         for i in 0..self.variant_transforms.len() {
@@ -139,6 +148,8 @@ struct CompiledProblem {
     board_dims: Coord,
     num_board_blocks: usize,
     board_symmetry: Vec<Transform>, // `Transform`s which preserve the board
+    mirror_board_symmetry: Vec<Transform>, // `Transform`s which preserve the board and have determinant -1
+    mirror_pairs: Vec<Option<usize>>,      // [piece] -> Some(piece) if mirrored piece exists
     piece_count: Vec<u32>,
     max_piece_count: u32,
     cumulative_piece_count: Vec<u32>,
@@ -148,8 +159,9 @@ struct CompiledProblem {
     placement_bitsets: PlacementBitSets,
 
     // [piece][position][variant][transform] -> (position, variant)
-    // where `transform` is the index in `board_symmetry`
+    // where `transform` is the index in `board_symmetry` or `mirror_board_symmetry`
     placement_transforms: Vec<Vec<Vec<Vec<(usize, usize)>>>>,
+    placement_mirror_transforms: Vec<Vec<Vec<Vec<(usize, usize)>>>>,
 
     config: Config,
 }
@@ -205,7 +217,60 @@ impl CompiledProblem {
                 }
             }
 
-            // TODO: support mirrored transforms
+            if !self.config.identify_mirrored_answers {
+                return true;
+            }
+
+            'outer: for tr in 0..self.mirror_board_symmetry.len() {
+                for p in 0..self.piece_count.len() {
+                    let ofs_p = self.cumulative_piece_count[p] as usize;
+
+                    let mut num_used_pieces = 0;
+                    for j in 0..(self.piece_count[p] as usize) {
+                        if answer[ofs_p + j] != (!0, !0) {
+                            num_used_pieces += 1;
+                        }
+                    }
+
+                    if num_used_pieces > 0 && self.mirror_pairs[p].is_none() {
+                        continue 'outer;
+                    }
+
+                    let q = self.mirror_pairs[p].unwrap();
+                    let ofs_q = self.cumulative_piece_count[q] as usize;
+
+                    let mut mirror_num_used_pieces = 0;
+                    for j in 0..(self.piece_count[q] as usize) {
+                        if answer[ofs_q as usize + j] != (!0, !0) {
+                            mirror_num_used_pieces += 1;
+                        }
+                    }
+
+                    if num_used_pieces > self.piece_count[q] as usize {
+                        continue 'outer;
+                    }
+                    if mirror_num_used_pieces > self.piece_count[p] as usize {
+                        continue 'outer;
+                    }
+
+                    for j in 0..mirror_num_used_pieces {
+                        let (pos, variant) = answer[ofs_q + j];
+                        buf[j] = self.placement_mirror_transforms[q][pos][variant][tr];
+                    }
+                    for j in mirror_num_used_pieces..self.piece_count[p] as usize {
+                        buf[j] = (!0, !0);
+                    }
+                    buf.sort();
+
+                    for j in 0..(self.piece_count[p] as usize) {
+                        match answer[ofs_p + j].cmp(&buf[j]) {
+                            std::cmp::Ordering::Less => continue 'outer,
+                            std::cmp::Ordering::Greater => return false,
+                            std::cmp::Ordering::Equal => {}
+                        }
+                    }
+                }
+            }
         }
 
         true
@@ -229,6 +294,7 @@ fn compile(
     assert_eq!(pieces.len(), piece_count.len());
 
     let board_symmetry = board.compute_symmetry();
+    let mirror_board_symmetry = board.compute_mirroring_symmetry();
     let coords = utils::coord_iterator(board).collect::<Vec<_>>();
 
     let mut pos_to_idx = CubicGrid::new(vec![None; board.dims().volume() as usize], board.dims());
@@ -238,20 +304,20 @@ fn compile(
 
     let mut placements: Vec<Vec<Vec<Vec<usize>>>> = vec![];
     let mut placement_transforms: Vec<Vec<Vec<Vec<(usize, usize)>>>> = vec![];
+    let mut placement_mirror_transforms: Vec<Vec<Vec<Vec<(usize, usize)>>>> = vec![];
 
-    for p in 0..pieces.len() {
-        let transforms = PieceTransforms::new(&pieces[p]);
+    let all_piece_transforms = pieces.iter().map(PieceTransforms::new).collect::<Vec<_>>();
+    let all_valid_placements = iter_map(0..pieces.len(), |p| {
+        let piece_transforms = &all_piece_transforms[p];
 
-        let mut all_placements = vec![]; // [position][i] -> variant_id
-
-        for i in 0..coords.len() {
+        iter_map(0..coords.len(), |i| {
             let mut placements = vec![];
 
             let bc = coords[i];
 
-            'outer: for j in 0..transforms.num_variants() {
-                let origin = transforms.origins[j];
-                let shape_dims = transforms.variants[j].dims();
+            'outer: for j in 0..piece_transforms.num_variants() {
+                let origin = piece_transforms.origins[j];
+                let shape_dims = piece_transforms.variants[j].dims();
 
                 if !(bc.ge(origin)) {
                     continue;
@@ -260,7 +326,7 @@ fn compile(
                     continue;
                 }
 
-                for pc in utils::coord_iterator(&transforms.variants[j]) {
+                for pc in utils::coord_iterator(&piece_transforms.variants[j]) {
                     if !board[bc + pc - origin] {
                         continue 'outer;
                     }
@@ -269,28 +335,36 @@ fn compile(
                 placements.push(j);
             }
 
-            all_placements.push(placements);
-        }
+            placements
+        })
+    });
+
+    for p in 0..pieces.len() {
+        let piece_transforms = &all_piece_transforms[p];
+        let valid_placements = &all_valid_placements[p];
 
         placements.push(iter_map(0..coords.len(), |i| {
-            iter_map(0..all_placements[i].len(), |j| {
+            iter_map(0..valid_placements[i].len(), |j| {
                 let coord = coords[i];
-                let variant = all_placements[i][j];
-                let orig = transforms.origins[variant];
-                iter_map(utils::coord_iterator(&transforms.variants[variant]), |p| {
-                    let p = p + coord - orig;
-                    let idx = pos_to_idx[p].unwrap();
-                    idx
-                })
+                let variant = valid_placements[i][j];
+                let orig = piece_transforms.origins[variant];
+                iter_map(
+                    utils::coord_iterator(&piece_transforms.variants[variant]),
+                    |p| {
+                        let p = p + coord - orig;
+                        let idx = pos_to_idx[p].unwrap();
+                        idx
+                    },
+                )
             })
         }));
 
         placement_transforms.push(iter_map(0..coords.len(), |i| {
-            iter_map(0..all_placements[i].len(), |j| {
-                let variant = all_placements[i][j];
+            iter_map(0..valid_placements[i].len(), |j| {
+                let variant = valid_placements[i][j];
 
                 iter_map(0..board_symmetry.len(), |k| {
-                    let (new_variant, new_origin) = transforms.transform_with_origin(
+                    let (new_variant, new_origin) = piece_transforms.transform_with_origin(
                         variant,
                         coords[i],
                         board.dims(),
@@ -298,12 +372,70 @@ fn compile(
                     );
 
                     let i2 = pos_to_idx[new_origin].unwrap();
-                    let j2 = all_placements[i2].binary_search(&new_variant).unwrap();
+                    let j2 = valid_placements[i2].binary_search(&new_variant).unwrap();
 
                     (i2, j2)
                 })
             })
         }));
+    }
+
+    let mut mirror_pairs = vec![];
+    for p in 0..pieces.len() {
+        let piece_transforms = &all_piece_transforms[p];
+        let valid_placements = &all_valid_placements[p];
+
+        if mirror_board_symmetry.is_empty() {
+            continue;
+        }
+
+        let mirror_transform = mirror_board_symmetry[0];
+
+        let mirrored = pieces[p].apply_transform(mirror_transform);
+        let mut mirror_pair = None;
+        for q in 0..pieces.len() {
+            if let Some(variant) = all_piece_transforms[q].find_variant(&mirrored) {
+                assert!(mirror_pair.is_none());
+                mirror_pair = Some((q, variant));
+            }
+        }
+
+        if let Some((q, qv)) = mirror_pair {
+            mirror_pairs.push(Some(q));
+
+            // mt: mirror_transform
+            // mt(piece[p]) == qv(piece[q])
+            placement_mirror_transforms.push(iter_map(0..coords.len(), |i| {
+                iter_map(0..valid_placements[i].len(), |j| {
+                    iter_map(0..mirror_board_symmetry.len(), |k| {
+                        let variant = valid_placements[i][j];
+
+                        let ct = mirror_board_symmetry[k]
+                            * piece_transforms.variant_transforms[variant][0];
+                        //    ct(piece[p])
+                        // == (ct * !mt * mt)(piece[p])
+                        // == (ct * !mt)(qvt(piece[q]))
+                        let t = all_piece_transforms[q].transform(qv, ct * !mirror_transform);
+
+                        let top = coords[i] - piece_transforms.origins[variant];
+                        let top_after_transform = transform_bbox(
+                            top,
+                            piece_transforms.variants[variant].dims(),
+                            board.dims(),
+                            mirror_board_symmetry[k],
+                        );
+                        let new_origin = top_after_transform + all_piece_transforms[q].origins[t];
+
+                        let i2 = pos_to_idx[new_origin].unwrap();
+                        let j2 = all_valid_placements[q][i2].binary_search(&t).unwrap();
+
+                        (i2, j2)
+                    })
+                })
+            }));
+        } else {
+            placement_mirror_transforms.push(vec![]);
+        }
     }
 
     let mut cumulative_piece_count = vec![0; piece_count.len() + 1];
@@ -321,6 +453,8 @@ fn compile(
         board_dims: board.dims(),
         num_board_blocks: coords.len(),
         board_symmetry,
+        mirror_board_symmetry,
+        mirror_pairs,
         piece_count: piece_count.to_vec(),
         max_piece_count: *piece_count.iter().max().unwrap(),
         cumulative_piece_count,
@@ -328,6 +462,7 @@ fn compile(
         placements,
         placement_bitsets,
         placement_transforms,
+        placement_mirror_transforms,
         config,
     }
 }
@@ -417,10 +552,6 @@ impl RawAnswers for RawAnswersImpl {
 }
 
 pub fn solve(problem: &DeduplicatedProblem, config: Config) -> impl RawAnswers {
-    if config.identify_mirrored_answers {
-        todo!();
-    }
-
     let compiled_problem = compile(
         &problem.pieces,
         &problem.piece_count,
@@ -458,6 +589,17 @@ pub fn solve(problem: &DeduplicatedProblem, config: Config) -> impl RawAnswers {
                     if (pos, i) > compiled_problem.placement_transforms[piece][pos][i][j] {
                         is_pruned = true;
                         break;
+                    }
+                }
+                if config.identify_mirrored_answers
+                    && compiled_problem.mirror_pairs[piece] == Some(piece)
+                {
+                    for j in 0..compiled_problem.mirror_board_symmetry.len() {
+                        if (pos, i) > compiled_problem.placement_mirror_transforms[piece][pos][i][j]
+                        {
+                            is_pruned = true;
+                            break;
+                        }
                     }
                 }
                 if is_pruned {
