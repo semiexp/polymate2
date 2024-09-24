@@ -298,4 +298,41 @@ mod tests {
             assert_eq!(answers.len(), 240);
         }
     }
+
+    #[test]
+    fn test_mirror_answers() {
+        let (pieces, counts) = get_shapes_by_names("PUFlyyz");
+
+        let board = Shape::new(vec![true; 27], Coord(3, 3, 3));
+
+        for (identify_transformed_answers, identify_mirrored_answers) in
+            [(false, false), (true, false), (true, true)]
+        {
+            let num_answers_naive;
+            {
+                let config = Config {
+                    identify_transformed_answers,
+                    identify_mirrored_answers,
+                    solver: SolverKind::Naive,
+                };
+
+                let answers = solve(&pieces, &counts, &board, config);
+                num_answers_naive = answers.len();
+            }
+
+            let num_answers_fast;
+            {
+                let config = Config {
+                    identify_transformed_answers,
+                    identify_mirrored_answers,
+                    solver: SolverKind::Fast,
+                };
+
+                let answers = solve(&pieces, &counts, &board, config);
+                num_answers_fast = answers.len();
+            }
+
+            assert_eq!(num_answers_naive, num_answers_fast);
+        }
+    }
 }

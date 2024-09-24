@@ -69,11 +69,14 @@ impl CompiledProblem {
             }
             if self.config.identify_mirrored_answers {
                 for tr in &self.board_mirror_symmetry {
-                    let mut answer_transformed = answer.apply_transform(*tr);
-                    answer_transformed = self.to_mirrored(&answer_transformed).unwrap();
-                    renormalize_piece_indices(&mut answer_transformed, self.piece_count.len());
-                    if !(answer <= &answer_transformed) {
-                        return false;
+                    let answer_transformed = answer.apply_transform(*tr);
+                    let answer_transformed = self.to_mirrored(&answer_transformed);
+
+                    if let Some(mut answer_transformed) = answer_transformed {
+                        renormalize_piece_indices(&mut answer_transformed, self.piece_count.len());
+                        if !(answer <= &answer_transformed) {
+                            return false;
+                        }
                     }
                 }
             }

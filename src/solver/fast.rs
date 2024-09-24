@@ -193,6 +193,7 @@ impl CompiledProblem {
     fn is_normal_form(&self, answer: &[(usize, usize)]) -> bool {
         if self.config.identify_transformed_answers {
             let mut buf = vec![(!0, !0); self.max_piece_count as usize];
+            let mut buf2 = vec![(!0, !0); self.max_piece_count as usize];
             'outer: for tr in 0..self.board_symmetry.len() {
                 for i in 0..self.piece_count.len() {
                     let ofs = self.cumulative_piece_count[i] as usize;
@@ -205,10 +206,15 @@ impl CompiledProblem {
                         }
                     }
 
+                    for j in 0..(self.piece_count[i] as usize) {
+                        buf2[j] = answer[ofs + j];
+                    }
+
                     buf.sort();
+                    buf2.sort();
 
                     for j in 0..(self.piece_count[i] as usize) {
-                        match answer[ofs + j].cmp(&buf[j]) {
+                        match buf2[j].cmp(&buf[j]) {
                             std::cmp::Ordering::Less => continue 'outer,
                             std::cmp::Ordering::Greater => return false,
                             std::cmp::Ordering::Equal => {}
@@ -218,6 +224,31 @@ impl CompiledProblem {
             }
 
             if !self.config.identify_mirrored_answers {
+                return true;
+            }
+
+            let mut is_mirrorable = true;
+            for p in 0..self.piece_count.len() {
+                let mut num_used_pieces = 0;
+                for j in 0..(self.piece_count[p] as usize) {
+                    if answer[self.cumulative_piece_count[p] as usize + j] != (!0, !0) {
+                        num_used_pieces += 1;
+                    }
+                }
+
+                if num_used_pieces > 0 && self.mirror_pairs[p].is_none() {
+                    is_mirrorable = false;
+                    break;
+                }
+
+                let q = self.mirror_pairs[p].unwrap();
+                if num_used_pieces > self.piece_count[q] as usize {
+                    is_mirrorable = false;
+                    break;
+                }
+            }
+
+            if !is_mirrorable {
                 return true;
             }
 
@@ -253,6 +284,13 @@ impl CompiledProblem {
                         continue 'outer;
                     }
 
+                    if num_used_pieces < mirror_num_used_pieces {
+                        continue 'outer;
+                    }
+                    if num_used_pieces > mirror_num_used_pieces {
+                        return false;
+                    }
+
                     for j in 0..mirror_num_used_pieces {
                         let (pos, variant) = answer[ofs_q + j];
                         buf[j] = self.placement_mirror_transforms[q][pos][variant][tr];
@@ -262,7 +300,7 @@ impl CompiledProblem {
                     }
                     buf.sort();
 
-                    for j in 0..(self.piece_count[p] as usize) {
+                    for j in 0..(self.piece_count[p].min(self.piece_count[q]) as usize) {
                         match answer[ofs_p + j].cmp(&buf[j]) {
                             std::cmp::Ordering::Less => continue 'outer,
                             std::cmp::Ordering::Greater => return false,
@@ -580,6 +618,19 @@ pub fn solve(problem: &DeduplicatedProblem, config: Config) -> impl RawAnswers {
     }
 
     if use_pre_pruning {
+        let mut always_mirrorable = true;
+        for p in 0..piece_count.len() {
+            if let Some(q) = compiled_problem.mirror_pairs[p] {
+                if piece_count[p] != piece_count[q] {
+                    always_mirrorable = false;
+                    break;
+                }
+            } else {
+                always_mirrorable = false;
+                break;
+            }
+        }
+
         // pre-pruning
         let piece = 0;
         for pos in 0..compiled_problem.num_board_blocks {
@@ -593,6 +644,7 @@ pub fn solve(problem: &DeduplicatedProblem, config: Config) -> impl RawAnswers {
                 }
                 if config.identify_mirrored_answers
                     && compiled_problem.mirror_pairs[piece] == Some(piece)
+                    && always_mirrorable
                 {
                     for j in 0..compiled_problem.mirror_board_symmetry.len() {
                         if (pos, i) > compiled_problem.placement_mirror_transforms[piece][pos][i][j]
