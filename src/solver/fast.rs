@@ -121,7 +121,7 @@ impl PlacementBitSets {
         let mut offset_by_position_and_piece = vec![0; num_board_blocks * num_pieces];
         for i in 1..num_board_blocks * num_pieces {
             offset_by_position_and_piece[i] =
-                offset_by_position_and_piece[i - 1] + num_variants[i - 1];
+                offset_by_position_and_piece[i - 1] + num_variants[i - 1] * size_per_variant;
         }
 
         PlacementBitSets {
