@@ -473,6 +473,7 @@ fn compile(
             }));
         } else {
             placement_mirror_transforms.push(vec![]);
+            mirror_pairs.push(None);
         }
     }
 
