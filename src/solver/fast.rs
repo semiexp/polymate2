@@ -197,7 +197,8 @@ impl CompiledProblem {
             'outer: for tr in 0..self.board_symmetry.len() {
                 for i in 0..self.piece_count.len() {
                     let ofs = self.cumulative_piece_count[i] as usize;
-                    for j in 0..(self.piece_count[i] as usize) {
+                    let n = self.piece_count[i] as usize;
+                    for j in 0..n {
                         if answer[ofs + j] == (!0, !0) {
                             buf[j] = (!0, !0);
                         } else {
@@ -206,14 +207,14 @@ impl CompiledProblem {
                         }
                     }
 
-                    for j in 0..(self.piece_count[i] as usize) {
+                    for j in 0..n {
                         buf2[j] = answer[ofs + j];
                     }
 
-                    buf.sort();
-                    buf2.sort();
+                    buf[..n].sort();
+                    buf2[..n].sort();
 
-                    for j in 0..(self.piece_count[i] as usize) {
+                    for j in 0..n {
                         match buf2[j].cmp(&buf[j]) {
                             std::cmp::Ordering::Less => continue 'outer,
                             std::cmp::Ordering::Greater => return false,
@@ -298,7 +299,7 @@ impl CompiledProblem {
                     for j in mirror_num_used_pieces..self.piece_count[p] as usize {
                         buf[j] = (!0, !0);
                     }
-                    buf.sort();
+                    buf[..self.piece_count[p] as usize].sort();
 
                     for j in 0..(self.piece_count[p].min(self.piece_count[q]) as usize) {
                         match answer[ofs_p + j].cmp(&buf[j]) {
