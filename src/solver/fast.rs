@@ -590,6 +590,63 @@ impl RawAnswers for RawAnswersImpl {
     }
 }
 
+pub fn solve_knuth(problem: &DeduplicatedProblem, config: Config) -> impl RawAnswers {
+    let compiled_problem = compile(
+        &problem.pieces,
+        &problem.piece_count,
+        &problem.board,
+        config,
+    );
+
+    let mut rows = vec![];
+    let mut variants = vec![];
+    for p in 0..compiled_problem.piece_count.len() {
+        for i in 0..compiled_problem.num_board_blocks {
+            for j in 0..compiled_problem.placements[p][i].len() {
+                rows.push((p, compiled_problem.placements[p][i][j].clone()));
+                variants.push((p, i, j));
+            }
+        }
+    }
+
+    let mut solver = crate::solver::knuth_algo::KnuthAlgorithm::new(
+        compiled_problem.num_board_blocks,
+        &rows,
+        &problem.piece_count,
+    );
+    let answers = solver.search();
+
+    let mut filtered_answers = vec![];
+    let total_piece_count =
+        compiled_problem.cumulative_piece_count[compiled_problem.piece_count.len()] as usize;
+    for answer in answers {
+        let mut answer_data = vec![(!0, !0); total_piece_count];
+        let mut piece_count = vec![0; compiled_problem.piece_count.len()];
+
+        for idx in answer {
+            let (p, i, j) = variants[idx];
+            assert!(piece_count[p] < problem.piece_count[p]);
+            answer_data[(piece_count[p] + compiled_problem.cumulative_piece_count[p]) as usize] =
+                (i, j);
+            piece_count[p] += 1;
+        }
+        for i in 0..compiled_problem.piece_count.len() {
+            let start = compiled_problem.cumulative_piece_count[i] as usize;
+            let end = compiled_problem.cumulative_piece_count[i + 1] as usize;
+            answer_data[start..end].sort();
+        }
+
+        if compiled_problem.is_normal_form(&answer_data) {
+            filtered_answers.push(answer_data);
+        }
+    }
+
+    RawAnswersImpl {
+        answers_base: filtered_answers,
+        compiled_problem,
+    }
+}
+
 pub fn solve(problem: &DeduplicatedProblem, config: Config) -> impl RawAnswers {
     let compiled_problem = compile(
         &problem.pieces,

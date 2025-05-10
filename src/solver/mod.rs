@@ -1,4 +1,5 @@
 mod fast;
+mod knuth_algo;
 mod naive;
 
 use crate::shape::{dedup_shapes, Answer, Shape};
@@ -8,6 +9,7 @@ pub enum SolverKind {
     Auto,
     Naive,
     Fast,
+    KnuthAlgorithm,
 }
 
 #[derive(Clone, Copy)]
@@ -103,6 +105,9 @@ pub fn solve(pieces: &[Shape], piece_count: &[u32], board: &Shape, config: Confi
         SolverKind::Fast => {
             raw_answers = Box::new(fast::solve(&problem, config));
         }
+        SolverKind::KnuthAlgorithm => {
+            raw_answers = Box::new(fast::solve_knuth(&problem, config));
+        }
     }
 
     Answers {
@@ -114,7 +119,7 @@ pub fn solve(pieces: &[Shape], piece_count: &[u32], board: &Shape, config: Confi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shape::{get_shapes_by_names, shape_from_string, Coord};
+    use crate::shape::{get_shape_by_name, get_shapes_by_names, shape_from_string, Coord};
 
     #[test]
     fn test_solve_pentomino_small() {
@@ -190,6 +195,44 @@ mod tests {
     }
 
     #[test]
+    fn test_solve_multiple_pieces2() {
+        let pieces = [get_shape_by_name('N')];
+        let counts = [14];
+
+        let board = Shape::new(vec![true; 70], Coord(7, 5, 2));
+
+        for (identify_transformed_answers, identify_mirrored_answers) in
+            [(false, false), (true, false), (true, true)]
+        {
+            let num_answers_naive;
+            {
+                let config = Config {
+                    identify_transformed_answers,
+                    identify_mirrored_answers,
+                    solver: SolverKind::Naive,
+                };
+
+                let answers = solve(&pieces, &counts, &board, config);
+                num_answers_naive = answers.len();
+            }
+
+            let num_answers_fast;
+            {
+                let config = Config {
+                    identify_transformed_answers,
+                    identify_mirrored_answers,
+                    solver: SolverKind::KnuthAlgorithm,
+                };
+
+                let answers = solve(&pieces, &counts, &board, config);
+                num_answers_fast = answers.len();
+            }
+
+            assert_eq!(num_answers_naive, num_answers_fast);
+        }
+    }
+
+    #[test]
     fn test_solve_duplicated_pieces() {
         let shapes = [
             // P
@@ -247,7 +290,11 @@ mod tests {
             assert_eq!(answers.len(), 2339 * 4);
         }
 
-        for solver in [SolverKind::Naive, SolverKind::Fast] {
+        for solver in [
+            SolverKind::Naive,
+            SolverKind::Fast,
+            SolverKind::KnuthAlgorithm,
+        ] {
             let config = Config {
                 identify_transformed_answers: true,
                 identify_mirrored_answers: false,
@@ -276,7 +323,11 @@ mod tests {
             assert_eq!(answers.len(), 240 * 2 * 24);
         }
 
-        for solver in [SolverKind::Naive, SolverKind::Fast] {
+        for solver in [
+            SolverKind::Naive,
+            SolverKind::Fast,
+            SolverKind::KnuthAlgorithm,
+        ] {
             let config = Config {
                 identify_transformed_answers: true,
                 identify_mirrored_answers: false,
@@ -296,6 +347,48 @@ mod tests {
 
             let answers = solve(&pieces, &counts, &board, config);
             assert_eq!(answers.len(), 240);
+        }
+    }
+
+    #[test]
+    fn test_soma_cube_irregular() {
+        let (pieces, counts) = get_shapes_by_names("ltnbxy");
+
+        let board = shape_from_string(
+            "### ### ###
+             #.# #.. ###
+             ### #.# ###",
+        );
+
+        for (identify_transformed_answers, identify_mirrored_answers) in
+            [(false, false), (true, false), (true, true)]
+        {
+            let num_answers_naive;
+            {
+                let config = Config {
+                    identify_transformed_answers,
+                    identify_mirrored_answers,
+                    solver: SolverKind::Naive,
+                };
+
+                let answers = solve(&pieces, &counts, &board, config);
+                num_answers_naive = answers.len();
+            }
+
+            let num_answers_fast;
+            {
+                let config = Config {
+                    identify_transformed_answers,
+                    identify_mirrored_answers,
+                    solver: SolverKind::Fast,
+                };
+
+                let answers = solve(&pieces, &counts, &board, config);
+                num_answers_fast = answers.len();
+            }
+
+            assert!(num_answers_naive > 0);
+            assert_eq!(num_answers_naive, num_answers_fast);
         }
     }
 
