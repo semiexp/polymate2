@@ -4,7 +4,7 @@ mod naive;
 
 use crate::shape::{dedup_shapes, Answer, Shape};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum SolverKind {
     Auto,
     Naive,
@@ -426,6 +426,24 @@ mod tests {
             }
 
             assert_eq!(num_answers_naive, num_answers_fast);
+        }
+    }
+
+    #[test]
+    fn test_slothouber_graatsma() {
+        // ref: https://en.wikipedia.org/wiki/Slothouber%E2%80%93Graatsma_puzzle
+        let (pieces, counts) = get_shapes_by_names("oooooommm");
+        let board = Shape::new(vec![true; 27], Coord(3, 3, 3));
+
+        for solver in [SolverKind::Naive, SolverKind::Fast] {
+            let config = Config {
+                identify_transformed_answers: true,
+                identify_mirrored_answers: true,
+                solver,
+            };
+
+            let answers = solve(&pieces, &counts, &board, config);
+            assert_eq!(answers.len(), 1, "Solver: {:?}", solver);
         }
     }
 }
