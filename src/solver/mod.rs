@@ -446,4 +446,59 @@ mod tests {
             assert_eq!(answers.len(), 1, "Solver: {:?}", solver);
         }
     }
+
+    #[test]
+    fn test_pentomino_unsolvable() {
+        let (pieces, counts) = get_shapes_by_names("FILNPTUVWXYZ");
+
+        let mut data = vec![true; 64];
+        data[3 * 8 + 3] = false;
+        data[3 * 8 + 4] = false;
+        data[4 * 8 + 3] = false;
+        data[4 * 8 + 4] = false;
+        data[3 * 8 + 1] = false;
+        let board = Shape::new(data, Coord(1, 8, 8));
+
+        for solver in [SolverKind::Naive, SolverKind::Fast] {
+            let config = Config {
+                identify_transformed_answers: false,
+                identify_mirrored_answers: false,
+                solver,
+            };
+
+            let answers = solve(&pieces, &counts, &board, config);
+            assert_eq!(answers.len(), 0);
+        }
+    }
+
+    #[test]
+    fn test_pentomino_8x8_cubic() {
+        let (pieces, counts) = get_shapes_by_names("FILNPTUVWXYZ");
+
+        let mut data = vec![false; 128];
+        for y in 0..8 {
+            for x in 0..8 {
+                if (y == 3 || y == 4) && (x == 3 || x == 4) {
+                    continue;
+                }
+                if y == 4 && x == 1 {
+                    continue;
+                }
+                data[y * 8 + x] = true;
+            }
+        }
+        data[64 + 3 * 8 + 1] = true;
+        let board = Shape::new(data, Coord(2, 8, 8));
+
+        for solver in [SolverKind::Naive, SolverKind::Fast] {
+            let config = Config {
+                identify_transformed_answers: true,
+                identify_mirrored_answers: true,
+                solver,
+            };
+
+            let answers = solve(&pieces, &counts, &board, config);
+            assert_eq!(answers.len(), 1);
+        }
+    }
 }
