@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::{Config, DeduplicatedProblem, RawAnswers};
 use crate::shape::{Answer, Coord, CubicGrid, Shape, Transform};
-use crate::utils;
+use crate::utils::{self, AxisOrder};
 
 struct CompiledProblem {
     board_dims: Coord,
@@ -158,9 +158,9 @@ fn compile(
 
     let coords = utils::coord_iterator(board).collect::<Vec<_>>();
     let board_size = coords.len();
-    let mut pos_id = CubicGrid::new(vec![!0; board_dims.volume() as usize], board_dims);
+    let mut pos_id = CubicGrid::new(vec![None; board_dims.volume() as usize], board_dims);
     for (idx, p) in coords.iter().enumerate() {
-        pos_id[*p] = idx;
+        pos_id[*p] = Some(idx);
     }
 
     let piece_variants = pieces
@@ -175,7 +175,7 @@ fn compile(
             let mut placements_piece = vec![];
 
             'outer: for variant in pv {
-                let origin = variant.origin();
+                let origin = variant.origin(&AxisOrder::default());
                 let shape_dims = variant.dims();
 
                 if !(bc.ge(origin)) {
@@ -194,8 +194,7 @@ fn compile(
                 let mut placement = vec![];
                 for pc in utils::coord_iterator(variant) {
                     let v = pos_id[bc + pc - origin];
-                    assert_ne!(v, !0);
-                    placement.push(v);
+                    placement.push(v.unwrap());
                 }
                 placements_piece.push(placement);
             }

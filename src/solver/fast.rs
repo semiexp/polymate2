@@ -1,6 +1,23 @@
 use super::{Config, DeduplicatedProblem, RawAnswers};
 use crate::shape::{transform_bbox, Answer, Coord, CubicGrid, Shape, Transform, TRANSFORMS};
-use crate::utils;
+use crate::utils::{self, AxisOrder};
+
+fn plan_axis_order(board: &CubicGrid<bool>) -> AxisOrder {
+    let dims = board.dims();
+
+    let mut axes = [(dims.0, 0), (dims.1, 1), (dims.2, 2)];
+    axes.sort();
+    axes.reverse();
+
+    AxisOrder::new(axes[0].1, axes[1].1, axes[2].1)
+}
+
+fn plan_coords(board: &CubicGrid<bool>, axis_order: &AxisOrder) -> Vec<Coord> {
+    let mut coords = utils::coord_iterator(board).collect::<Vec<_>>();
+    coords.sort_by(|a, b| axis_order.compare(a, b));
+
+    coords
+}
 
 struct PieceTransforms {
     variants: Vec<Shape>,
@@ -9,7 +26,7 @@ struct PieceTransforms {
 }
 
 impl PieceTransforms {
-    fn new(shape: &Shape) -> PieceTransforms {
+    fn new(shape: &Shape, axis_order: &AxisOrder) -> PieceTransforms {
         let mut dup_variants = vec![];
         for &transform in &TRANSFORMS {
             dup_variants.push((shape.apply_transform(transform), transform));
@@ -31,7 +48,10 @@ impl PieceTransforms {
             i = j;
         }
 
-        let origins = variants.iter().map(|v| v.origin()).collect::<Vec<_>>();
+        let origins = variants
+            .iter()
+            .map(|v| v.origin(axis_order))
+            .collect::<Vec<_>>();
 
         PieceTransforms {
             variants,
@@ -338,7 +358,9 @@ fn compile(
 
     let board_symmetry = board.compute_symmetry();
     let mirror_board_symmetry = board.compute_mirroring_symmetry();
-    let coords = utils::coord_iterator(board).collect::<Vec<_>>();
+
+    let axis_order = plan_axis_order(board);
+    let coords = plan_coords(board, &axis_order);
 
     let mut pos_to_idx = CubicGrid::new(vec![None; board.dims().volume() as usize], board.dims());
     for (idx, p) in coords.iter().enumerate() {
@@ -349,7 +371,10 @@ fn compile(
     let mut placement_transforms: Vec<Vec<Vec<Vec<(usize, usize)>>>> = vec![];
     let mut placement_mirror_transforms: Vec<Vec<Vec<Vec<(usize, usize)>>>> = vec![];
 
-    let all_piece_transforms = pieces.iter().map(PieceTransforms::new).collect::<Vec<_>>();
+    let all_piece_transforms = pieces
+        .iter()
+        .map(|piece| PieceTransforms::new(piece, &axis_order))
+        .collect::<Vec<_>>();
     let all_valid_placements = iter_map(0..pieces.len(), |p| {
         let piece_transforms = &all_piece_transforms[p];
 
@@ -786,7 +811,7 @@ mod tests {
         let expected_num_variants = [1, 3, 24, 12, 24, 3, 12, 12, 12, 24, 3];
 
         for (shape, n) in shapes.into_iter().zip(expected_num_variants.into_iter()) {
-            let piece = PieceTransforms::new(&shape);
+            let piece = PieceTransforms::new(&shape, &AxisOrder::default());
             assert_eq!(piece.num_variants(), n);
 
             for v in 0..piece.num_variants() {

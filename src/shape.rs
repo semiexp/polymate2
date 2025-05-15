@@ -1,3 +1,4 @@
+use crate::utils::AxisOrder;
 use std::ops::{Add, Index, IndexMut, Mul, Not, Sub};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -365,18 +366,28 @@ impl Shape {
         ret
     }
 
-    pub fn origin(&self) -> Coord {
+    pub fn origin(&self, axis_order: &AxisOrder) -> Coord {
+        let mut smallest: Option<Coord> = None;
+
         for i in 0..self.data.len() {
             if self.data[i] {
                 let i = i as i32;
                 let z = i % self.dims.2;
                 let y = (i / self.dims.2) % self.dims.1;
                 let x = i / (self.dims.1 * self.dims.2);
-                return Coord(x as i32, y as i32, z as i32);
+
+                let coord = Coord(x, y, z);
+                if let Some(s) = smallest {
+                    if axis_order.compare(&coord, &s) == std::cmp::Ordering::Less {
+                        smallest = Some(coord);
+                    }
+                } else {
+                    smallest = Some(coord);
+                }
             }
         }
 
-        panic!("empty shape");
+        smallest.unwrap()
     }
 
     pub fn normalize(&self) -> Shape {
