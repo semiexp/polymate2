@@ -78,7 +78,7 @@ pub fn solve(problem: Problem) -> JsAnswers {
     let config = crate::solver::Config {
         identify_transformed_answers: true,
         identify_mirrored_answers: true,
-        solver: SolverKind::Naive,
+        solver: SolverKind::Fast,
     };
     let answers = crate::solver::solve(&pieces, &piece_count, &board, config);
     JsAnswers { answers }
