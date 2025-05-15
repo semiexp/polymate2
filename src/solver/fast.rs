@@ -229,23 +229,27 @@ impl CompiledProblem {
             }
 
             let mut is_mirrorable = true;
-            for p in 0..self.piece_count.len() {
-                let mut num_used_pieces = 0;
-                for j in 0..(self.piece_count[p] as usize) {
-                    if answer[self.cumulative_piece_count[p] as usize + j] != (!0, !0) {
-                        num_used_pieces += 1;
+            if self.mirror_pairs.is_empty() {
+                is_mirrorable = false;
+            } else {
+                for p in 0..self.piece_count.len() {
+                    let mut num_used_pieces = 0;
+                    for j in 0..(self.piece_count[p] as usize) {
+                        if answer[self.cumulative_piece_count[p] as usize + j] != (!0, !0) {
+                            num_used_pieces += 1;
+                        }
                     }
-                }
 
-                if num_used_pieces > 0 && self.mirror_pairs[p].is_none() {
-                    is_mirrorable = false;
-                    break;
-                }
+                    if num_used_pieces > 0 && self.mirror_pairs[p].is_none() {
+                        is_mirrorable = false;
+                        break;
+                    }
 
-                let q = self.mirror_pairs[p].unwrap();
-                if num_used_pieces > self.piece_count[q] as usize {
-                    is_mirrorable = false;
-                    break;
+                    let q = self.mirror_pairs[p].unwrap();
+                    if num_used_pieces > self.piece_count[q] as usize {
+                        is_mirrorable = false;
+                        break;
+                    }
                 }
             }
 
@@ -678,15 +682,19 @@ pub fn solve(problem: &DeduplicatedProblem, config: Config) -> impl RawAnswers {
 
     if use_pre_pruning {
         let mut always_mirrorable = true;
-        for p in 0..piece_count.len() {
-            if let Some(q) = compiled_problem.mirror_pairs[p] {
-                if piece_count[p] != piece_count[q] {
+        if compiled_problem.mirror_pairs.is_empty() {
+            always_mirrorable = false;
+        } else {
+            for p in 0..piece_count.len() {
+                if let Some(q) = compiled_problem.mirror_pairs[p] {
+                    if piece_count[p] != piece_count[q] {
+                        always_mirrorable = false;
+                        break;
+                    }
+                } else {
                     always_mirrorable = false;
                     break;
                 }
-            } else {
-                always_mirrorable = false;
-                break;
             }
         }
 
@@ -702,8 +710,8 @@ pub fn solve(problem: &DeduplicatedProblem, config: Config) -> impl RawAnswers {
                     }
                 }
                 if config.identify_mirrored_answers
-                    && compiled_problem.mirror_pairs[piece] == Some(piece)
                     && always_mirrorable
+                    && compiled_problem.mirror_pairs[piece] == Some(piece)
                 {
                     for j in 0..compiled_problem.mirror_board_symmetry.len() {
                         if (pos, i) > compiled_problem.placement_mirror_transforms[piece][pos][i][j]
