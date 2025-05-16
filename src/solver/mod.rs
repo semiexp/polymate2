@@ -430,6 +430,92 @@ mod tests {
     }
 
     #[test]
+    fn test_many_identical_pieces() {
+        let (pieces, counts) = get_shapes_by_names("PPPPlllbb");
+
+        let board = shape_from_string(
+            "########
+             ########
+             ###..###
+             ########
+             ########",
+        );
+
+        for (identify_transformed_answers, identify_mirrored_answers) in
+            [(false, false), (true, false), (true, true)]
+        {
+            let num_answers_naive;
+            {
+                let config = Config {
+                    identify_transformed_answers,
+                    identify_mirrored_answers,
+                    solver: SolverKind::Naive,
+                };
+
+                let answers = solve(&pieces, &counts, &board, config);
+                num_answers_naive = answers.len();
+            }
+
+            let num_answers_fast;
+            {
+                let config = Config {
+                    identify_transformed_answers,
+                    identify_mirrored_answers,
+                    solver: SolverKind::Fast,
+                };
+
+                let answers = solve(&pieces, &counts, &board, config);
+                num_answers_fast = answers.len();
+            }
+
+            assert_eq!(num_answers_naive, num_answers_fast);
+        }
+    }
+
+    #[test]
+    fn test_many_identical_pieces_asymmetry() {
+        let (pieces, counts) = get_shapes_by_names("PPPPlllbb");
+
+        let board = shape_from_string(
+            "######## ........
+             ######## ......#.
+             ##..#### ........
+             ###.#### ........
+             ######## ........",
+        );
+
+        for (identify_transformed_answers, identify_mirrored_answers) in
+            [(false, false), (true, false), (true, true)]
+        {
+            let num_answers_naive;
+            {
+                let config = Config {
+                    identify_transformed_answers,
+                    identify_mirrored_answers,
+                    solver: SolverKind::Naive,
+                };
+
+                let answers = solve(&pieces, &counts, &board, config);
+                num_answers_naive = answers.len();
+            }
+
+            let num_answers_fast;
+            {
+                let config = Config {
+                    identify_transformed_answers,
+                    identify_mirrored_answers,
+                    solver: SolverKind::Fast,
+                };
+
+                let answers = solve(&pieces, &counts, &board, config);
+                num_answers_fast = answers.len();
+            }
+
+            assert_eq!(num_answers_naive, num_answers_fast);
+        }
+    }
+
+    #[test]
     fn test_slothouber_graatsma() {
         // ref: https://en.wikipedia.org/wiki/Slothouber%E2%80%93Graatsma_puzzle
         let (pieces, counts) = get_shapes_by_names("oooooommm");
